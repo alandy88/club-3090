@@ -4,7 +4,6 @@
 #   - ik-llama-server     (ik_llama.cpp, locally built)
 #   - atomic-llama-server (atomic-llama-cpp-turboquant, for Gemma 4 MTP)
 #   - bee-llama-server    (beellama.cpp, DFlash + TurboQuant)
-#   - ik-qwen-server      (ik-llama-server wrapper with preserve_thinking)
 # =============================================================================
 
 FROM atomic-llama-cpp:server-cuda AS atomic-source
@@ -31,5 +30,4 @@ COPY --from=bee-source /app/*.so* /opt/bee/
 COPY ik-llama-server.sh /usr/local/bin/ik-llama-server
 COPY atomic-llama-server.sh /usr/local/bin/atomic-llama-server
 COPY bee-llama-server.sh /usr/local/bin/bee-llama-server
-COPY ik-qwen-server.sh /usr/local/bin/ik-qwen-server
-RUN chmod +x /usr/local/bin/ik-llama-server /usr/local/bin/atomic-llama-server /usr/local/bin/bee-llama-server /usr/local/bin/ik-qwen-server
+RUN chmod +x /usr/local/bin/ik-llama-server /usr/local/bin/atomic-llama-server /usr/local/bin/bee-llama-server

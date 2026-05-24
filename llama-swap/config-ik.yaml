@@ -10,7 +10,8 @@ globalTTL: 300
 models:
   "Qwen3.6-27B-MTP-IQ4_KS":
     cmd: |
-      ik-qwen-server
+      ik-llama-server
+      --chat-template-kwargs '{"preserve_thinking":true}'
       --port ${PORT}
       -m /models/Qwen3.6-27B-MTP-IQ4_KS.gguf
       --mmproj /models/mmproj-Qwen3.6-27B-BF16.gguf
@@ -180,7 +181,8 @@ models:
 
   "Qwen3.6-35B-A3B-IQ4_XS":
     cmd: |
-      ik-qwen-server
+      ik-llama-server
+      --chat-template-kwargs '{"preserve_thinking":true}'
       --port ${PORT}
       -m /models/Qwen3.6-35B-A3B-IQ4_XS-4.19bpw.gguf
       --mmproj /models/mmproj-Qwen3.6-35B-A3B-BF16.gguf
