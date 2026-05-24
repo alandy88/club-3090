@@ -1,0 +1,82 @@
+# ===========================================================================
+# Profile (at-a-glance):
+#   Model:     Qwen3.6-27B Heretic v2 Uncensored (Q5_K_M, no MTP tensors)
+#   Engine:    beellama.cpp v0.1.2 (Anbeeld fork — DFlash + TurboQuant)
+#   Topology:  Single 3090 (TP=1)
+#   Drafter:   DFlash (spiritbuun Q4_K_M cross-attention drafter, 1.0GB)
+#   KV:        turbo4 (K) + turbo4 (V) — ~3.9x compression
+#   Chat tmpl: native (GGUF built-in Qwen3.6 template)
+#   Vision:    no
+#   Max ctx:   200K
+#   Status:    experimental
+#   Engine-profile: beellama-dflash
+#   Best for:  Maximum decode speed via DFlash speculative + compressed KV
+
+services:
+  llama-cpp-qwen36-27b-beellama:
+    image: beellama:server-cuda
+    container_name: ${ESTATE_CONTAINER:-llama-cpp-qwen36-27b-beellama}
+    restart: unless-stopped
+    ports:
+      - "${ESTATE_PORT:-${PORT:-8020}}:8080"
+    volumes:
+      - ${MODEL_DIR:-/home/peteryu/llms}:/models:ro
+    entrypoint:
+      - /app/llama-server
+    command:
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8080"
+      - -m
+      - /models/${GGUF_FILE:-Qwen3.6-27B-uncensored-heretic-v2-Q5_K_M.gguf}
+      - --spec-type
+      - dflash
+      - --spec-draft-model
+      - /models/${DRAFT_FILE:-dflash-draft-3.6-q4_k_m.gguf}
+      - --spec-draft-ngl
+      - "99"
+      - --spec-dflash-cross-ctx
+      - "1024"
+      - -c
+      - "${CTX_SIZE:-180000}"
+      - -b
+      - "${BATCH_SIZE:-2048}"
+      - -ub
+      - "${UBATCH_SIZE:-256}"
+      - -ngl
+      - "99"
+      - -fa
+      - "on"
+      - --cache-type-k
+      - "${KV_TYPE_K:-turbo4}"
+      - --cache-type-v
+      - "${KV_TYPE_V:-turbo4}"
+      - -np
+      - "1"
+      - --kv-unified
+      - --cache-ram
+      - "0"
+      - --no-mmap
+      - --mlock
+      - --metrics
+      - --jinja
+      - --reasoning
+      - "on"
+      - --temp
+      - "${TEMP:-1.0}"
+      - --top-p
+      - "0.95"
+      - --top-k
+      - "20"
+      - --min-p
+      - "0.0"
+      - --presence-penalty
+      - "1.5"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${ESTATE_GPUS:-${CUDA_VISIBLE_DEVICES:-0}}"]
+              capabilities: [compute, utility]

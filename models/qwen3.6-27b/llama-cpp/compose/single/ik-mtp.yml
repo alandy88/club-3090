@@ -1,0 +1,104 @@
+# ===========================================================================
+# Profile (at-a-glance):
+#   Model:     Qwen3.6-27B (ubergarm IQ4_KS GGUF + native MTP)
+#   Engine:    ik_llama.cpp (ikawrakow fork, built from HEAD ~4507+)
+#   Topology:  Single 3090 (TP=1)
+#   Drafter:   MTP (model built-in multi-token prediction heads)
+#   KV:        q8_0 (8-bit quantized K+V)
+#   Vision:    yes (mmproj Q8_0 on CPU via --no-mmproj-offload)
+#   Max ctx:   156K
+#   Status:    experimental
+#   Engine-profile: ik-llama-cpp-mtp
+#   Best for:  Maximum single-card decode speed -- ~73 tok/s decode, ~1260
+#              tok/s prefill per r/LocalLLaMA benchmarks (VolandBerlioz).
+#              IQ4_KS quant is ik_llama.cpp-specific; saves ~2.8 GiB over
+#              UD-Q4_K_XL while matching or exceeding quality.
+# ---------------------------------------------------------------------------
+# Source: https://reddit.com/r/LocalLLaMA/s/MNWtMdtWq3
+# ik_llama.cpp: https://github.com/ikawrakow/ik_llama.cpp
+# Model: https://huggingface.co/ubergarm/Qwen3.6-27B-GGUF
+#
+# VRAM budget on 24 GB:
+#   weights (IQ4_KS + MTP):      ~11.7 GB
+#   KV at 156K (q8_0 K+V):        ~8.5 GB
+#   MTP draft context:            ~2.0 GB
+#   total:                       ~22.2 GB
+#   headroom:                     ~1.8 GB
+#
+# Quick start:
+#   1. Build ik_llama.cpp Docker image:
+#        cd ~/Git/ik_llama.cpp
+#        docker build -f .devops/llama-server-cuda.Dockerfile #          --build-arg CUDA_DOCKER_ARCH=86 #          --build-arg CUDA_VERSION=12.4.1 #          -t ik-llama-cpp:server-cuda .
+#   2. Get the GGUF:
+#        wget -O $MODEL_DIR/Qwen3.6-27B-MTP-IQ4_KS.gguf #          https://huggingface.co/ubergarm/Qwen3.6-27B-GGUF/resolve/main/Qwen3.6-27B-MTP-IQ4_KS.gguf
+#   3. From this directory:
+#        MODEL_DIR=/your/models/dir docker compose -f ik-mtp.yml up -d
+#   4. curl http://localhost:8020/v1/models
+#
+# Override defaults via .env or shell:
+#   MODEL_DIR              host dir to mount as /models
+#   GGUF_FILE              path under /models (default: Qwen3.6-27B-MTP-IQ4_KS.gguf)
+#   CTX_SIZE               total KV pool (default: 156000)
+#   PORT                   host port (default: 8020)
+services:
+  ik-llama-cpp-qwen36-27b-mtp:
+    image: ik-llama-cpp:server-cuda
+    container_name: ${ESTATE_CONTAINER:-ik-llama-cpp-qwen36-27b-mtp}
+    restart: unless-stopped
+    ports:
+    - ${ESTATE_PORT:-${PORT:-8020}}:8080
+    volumes:
+    - ${MODEL_DIR:-/home/peteryu/llms}:/models:ro
+    entrypoint:
+    - /llama-server
+    command:
+    - --host
+    - 0.0.0.0
+    - --port
+    - '8080'
+    - -m
+    - /models/${GGUF_FILE:-Qwen3.6-27B-MTP-IQ4_KS.gguf}
+    - --mmproj
+    - /models/${MMPROJ_FILE:-mmproj-Qwen3.6-27B-Q8_0.gguf}
+    - -c
+    - ${CTX_SIZE:-156000}
+    - -ngl
+    - '99'
+    - -fa
+    - 'on'
+    - --cache-type-k
+    - q8_0
+    - --cache-type-v
+    - q8_0
+    - --multi-token-prediction
+    - --draft-max
+    - ${DRAFT_MAX:-3}
+    - --draft-p-min
+    - '0.0'
+    - --merge-qkv
+    - --merge-up-gate-experts
+    - --cache-ram
+    - '32768'
+    - --ctx-checkpoints
+    - '32'
+    - -np
+    - '1'
+    - --jinja
+    - --reasoning
+    - 'on'
+    - --reasoning-format
+    - deepseek
+    - --chat-template-kwargs
+    - '{"preserve_thinking":true}'
+    - --no-mmproj-offload
+    - --metrics
+    deploy:
+      resources:
+        reservations:
+          devices:
+          - driver: nvidia
+            device_ids:
+            - ${ESTATE_GPUS:-${CUDA_VISIBLE_DEVICES:-0}}
+            capabilities:
+            - compute
+            - utility

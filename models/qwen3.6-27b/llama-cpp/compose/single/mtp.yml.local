@@ -1,0 +1,99 @@
+# ===========================================================================
+# Profile (at-a-glance):
+#   Model:     Qwen3.6-27B Heretic v2 Uncensored (Q3_K_M GGUF + native MTP)
+#   Engine:    llama.cpp (locally-built MTP image from upstream/master 4f13cb74)
+#   Topology:  Single 3090 (TP=1)
+#   Drafter:   MTP (model built-in multi-token prediction heads)
+#   KV:        q4_0 (4-bit packed)
+#   Vision:    no (MTP + mmproj interaction untested; drop vision for max speed)
+#   Max ctx:   262K (Q3_K_M small enough to fit full native context + MTP)
+#   Genesis:   N/A -- llama.cpp engine
+#   Status:    experimental
+#   Engine-profile: llama-cpp-mainline (local build w/ MTP)
+#   Best for:  Speed uplift over vanilla llama.cpp via native MTP spec-decode
+# ---------------------------------------------------------------------------
+# Built from: upstream/master @ 4f13cb742 (includes PR #22673 MTP Support)
+# Image tag:  ghcr.io/ggml-org/llama.cpp:server-cuda-mtp
+#
+# MTP uses the model's own multi-token prediction heads -- no separate draft
+# model GGUF needed. Qwen3.6 ships with MTP layers in the architecture.
+#
+# VRAM budget on 24 GB:
+#   weights (Q3_K_M + MTP):      ~13.4 GB
+#   KV at 262K (q4_0 K+V):        ~4.5 GB
+#   MTP draft context:            ~4.5 GB
+#   total:                       ~22.4 GB
+#   headroom:                     ~1.6 GB
+#
+# Quick start:
+#   1. Get the GGUF:
+#        hf download unsloth/Qwen3.6-27B-GGUF \
+#          --include "Qwen3.6-27B-UD-Q3_K_XL.gguf" \
+#          --local-dir $MODEL_DIR/qwen3.6-27b-gguf/unsloth-q3kxl
+#   2. From this directory:
+#        MODEL_DIR=/your/models/dir docker compose -f mtp.yml up -d
+#   3. curl http://localhost:8020/v1/models
+#
+# Override defaults via .env or shell:
+#   MODEL_DIR              host dir to mount as /models
+#   GGUF_FILE              path under /models
+#   CTX_SIZE               total KV pool (default: 262144)
+#   MTP_N_MAX              max MTP draft tokens (default: 4)
+#   PORT                   host port (default: 8020)
+
+services:
+  llama-cpp-qwen36-27b-mtp:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda-mtp
+    container_name: "${ESTATE_CONTAINER:-llama-cpp-qwen36-27b-mtp}"
+    restart: unless-stopped
+    ports:
+      - "${ESTATE_PORT:-${PORT:-8020}}:8080"
+    volumes:
+      - "${MODEL_DIR:-/home/peteryu/llms}:/models:ro"
+    entrypoint:
+      - /app/llama-server
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - -m
+      - /models/${GGUF_FILE:-Qwen3.6-27B-uncensored-heretic-v2-Native-MTP-Preserved-Q3_K_M.gguf}
+      - -c
+      - ${CTX_SIZE:-204800}
+      - -b
+      - ${BATCH_SIZE:-4096}
+      - -ub
+      - ${UBATCH_SIZE:-2048}
+      - -ngl
+      - "99"
+      - -fa
+      - "on"
+      - --cache-type-k
+      - ${KV_TYPE:-q4_0}
+      - --cache-type-v
+      - ${KV_TYPE:-q4_0}
+      - -np
+      - "1"
+      - --jinja
+      - --reasoning
+      - on
+      - --spec-type
+      - draft-mtp
+      - --spec-draft-n-max
+      - ${MTP_N_MAX:-3}
+      - --temp
+      - "${TEMP:-0.6}"
+      - --top-p
+      - "0.95"
+      - --top-k
+      - "20"
+      - --min-p
+      - "0.0"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${ESTATE_GPUS:-${CUDA_VISIBLE_DEVICES:-0}}"]
+              capabilities: [compute, utility]

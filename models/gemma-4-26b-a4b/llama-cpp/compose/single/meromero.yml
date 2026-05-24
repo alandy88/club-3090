@@ -1,0 +1,96 @@
+# ===========================================================================
+# Profile (at-a-glance):
+#   Model:     Gemma 4 26B-A4B MoE (zerofata/G4-MeroMero finetune, Q4_K_M)
+#   Engine:    llama.cpp b9222 (stock, not ik_llama.cpp)
+#   Topology:  Single 3090 (TP=1)
+#   KV:        q8_0 (8-bit quantized K+V)
+#   Max ctx:   65K (fully on GPU, no CPU spill)
+#   Status:    tested
+# ---------------------------------------------------------------------------
+# Model: https://huggingface.co/zerofata/G4-MeroMero-26B-A4B-gguf
+# Base:  google/gemma-4-26B-A4B-it (MoE, 128 experts, 8 active, ~4B active params)
+#
+# VRAM budget on 24 GB:
+#   weights (Q4_K_M):             ~15.9 GB
+#   KV at 65K (q8_0 K+V):         ~7.5 GB
+#   total:                        ~23.4 GB
+#   headroom:                      ~0.6 GB
+#
+# Benchmarks (RTX 3090, 330W):
+#   prefill:  283 tok/s
+#   decode:   143 tok/s
+#
+# Notes:
+#   - Gemma 4 MoE is sensitive to KV quantization (q4_0 degrades quality).
+#     Use q8_0 or f16 KV. See: localbench.substack.com/p/kv-cache-quantization-benchmark
+#   - --ctx-checkpoints 0 required to avoid RAM bloat bug (llama.cpp #21690)
+#   - Prompt cache is broken for SWA/hybrid models (llama.cpp #22940)
+#   - SWA KV compression not yet implemented; all 30 layers allocate full ctx
+#   - For 180K context: use -fit (CPU spill), no decode penalty on short convos
+#   - Unsloth recommends: --temp 1.0 --top-p 0.95 --top-k 64
+#
+# Quick start:
+#   1. Build llama.cpp b9222 Docker image:
+#        cd ~/Git/llama.cpp && git checkout b9222
+#        docker build -f .devops/cuda.Dockerfile \
+#          --build-arg CUDA_DOCKER_ARCH=86 \
+#          -t llama-cpp:server-cuda-b9222 .
+#   2. Get the GGUF:
+#        wget -O $MODEL_DIR/G4-MeroMero-26B-A4B-Q4_K_M.gguf \
+#          "https://huggingface.co/zerofata/G4-MeroMero-26B-A4B-gguf/resolve/main/G4-MeroMero-26B-A4B-Q4_K_M.gguf?download=true"
+#   3. From this directory:
+#        MODEL_DIR=/your/models/dir docker compose -f meromero.yml up -d
+#   4. curl http://localhost:8020/v1/models
+services:
+  llama-cpp-gemma4-26b-a4b:
+    image: llama-cpp:server-cuda-b9222
+    container_name: ${ESTATE_CONTAINER:-llama-cpp-gemma4-26b-a4b}
+    restart: unless-stopped
+    ports:
+    - ${ESTATE_PORT:-${PORT:-8020}}:8080
+    volumes:
+    - ${MODEL_DIR:-/home/peteryu/llms}:/models:ro
+    entrypoint:
+    - /app/llama-server
+    command:
+    - --host
+    - 0.0.0.0
+    - --port
+    - '8080'
+    - -m
+    - /models/${GGUF_FILE:-G4-MeroMero-26B-A4B-Q4_K_M.gguf}
+    - -c
+    - ${CTX_SIZE:-65536}
+    - -ngl
+    - '99'
+    - -fa
+    - 'on'
+    - --cache-type-k
+    - q8_0
+    - --cache-type-v
+    - q8_0
+    - --ctx-checkpoints
+    - '0'
+    - -np
+    - '1'
+    - --jinja
+    - --reasoning
+    - 'on'
+    - --temp
+    - '1.0'
+    - --top-p
+    - '0.95'
+    - --top-k
+    - '64'
+    - --metrics
+    deploy:
+      resources:
+        reservations:
+          devices:
+          - driver: nvidia
+            device_ids:
+            - ${ESTATE_GPUS:-${CUDA_VISIBLE_DEVICES:-0}}
+            capabilities:
+            - compute
+            - utility
+

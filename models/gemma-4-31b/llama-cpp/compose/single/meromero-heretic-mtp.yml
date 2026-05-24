@@ -1,0 +1,125 @@
+# ===========================================================================
+# Profile (at-a-glance):
+#   Model:     Gemma 4 31B dense (G4-MeroMero-31B-uncensored-heretic, Q4_K_M)
+#   Engine:    atomic-llama-cpp-turboquant (feature/turboquant-kv-cache)
+#   Topology:  Single 3090 (TP=1)
+#   KV:        q4_0 (4-bit quantized K+V)
+#   MTP:       gemma-4-31B-it-assistant Q4_K_M drafter (~337 MB)
+#   Max ctx:   128K (fully on GPU)
+#   Status:    tested
+# ---------------------------------------------------------------------------
+# Model:    https://huggingface.co/llmfan46/G4-MeroMero-31B-uncensored-heretic-GGUF
+# Drafter:  https://huggingface.co/AtomicChat/gemma-4-31B-it-assistant-GGUF
+# Base:     google/gemma-4-31B-it (dense, 60 layers, 31B params active)
+# Fork:     https://github.com/AtomicBot-ai/atomic-llama-cpp-turboquant
+#
+# VRAM budget on 24 GB:
+#   weights (Q4_K_M):             ~18.0 GB
+#   KV at 128K (q4_0 K+V):        ~3.8 GB
+#   drafter (Q4_K_M):             ~0.3 GB
+#   total:                        ~22.1 GB
+#   headroom:                      ~2.5 GB
+#
+# Benchmarks (RTX 3090, 330W):
+#   decode:   ~49 tok/s  (1.3x vs 38.7 without MTP)
+#   prefill:  ~819 tok/s
+#   draft acceptance: 64-73%
+#
+# Comparison (all tested on same hardware):
+#   heretic Q4_K_S, no MTP (stock b9222):  38.7 tok/s decode, 21.1 GB
+#   heretic Q4_K_S + MTP (atomic):         ~50  tok/s decode, 21.1 GB, ~390 prefill
+#   unsloth base Q4_K_M + MTP (atomic):    ~50  tok/s decode, 21.9 GB, ~840 prefill
+#   heretic Q4_K_M + MTP (atomic):         ~49  tok/s decode, 22.3 GB, ~819 prefill
+#
+# Notes:
+#   - MTP uses a separate assistant/drafter model (NOT built-in like Qwen3.6)
+#   - Drafter is from base gemma-4-31B-it — works with finetunes (same tokenizer)
+#   - Q4_K_M gives 2x prefill vs Q4_K_S; decode speed identical
+#   - --ctx-checkpoints 0 required to avoid RAM bloat bug (llama.cpp #21690)
+#   - Prompt cache is broken for SWA/hybrid models (llama.cpp #22940)
+#   - --draft-block-size 3 is community default; tune 2-4 for your workload
+#   - Unsloth recommends: --temp 1.0 --top-p 0.95 --top-k 64
+#   - Do NOT use CUDA 13.2 runtime (causes poor outputs)
+#
+# Quick start:
+#   1. Build atomic-llama-cpp-turboquant Docker image:
+#        cd ~/Git/atomic-llama-cpp-turboquant
+#        git checkout feature/turboquant-kv-cache
+#        docker build -f .devops/cuda.Dockerfile --target server \
+#          --build-arg CUDA_DOCKER_ARCH=86 \
+#          -t atomic-llama-cpp:server-cuda .
+#   2. Get the GGUFs:
+#        # Main model (~18.7 GB)
+#        wget -O $MODEL_DIR/G4-MeroMero-31B-uncensored-heretic-Q4_K_M.gguf \
+#          "https://huggingface.co/llmfan46/G4-MeroMero-31B-uncensored-heretic-GGUF/resolve/main/G4-MeroMero-31B-uncensored-heretic-Q4_K_M.gguf?download=true"
+#        # Drafter (~337 MB)
+#        wget -O $MODEL_DIR/gemma-4-31B-it-assistant.Q4_K_M.gguf \
+#          "https://huggingface.co/AtomicChat/gemma-4-31B-it-assistant-GGUF/resolve/main/gemma-4-31B-it-assistant.Q4_K_M.gguf?download=true"
+#   3. From this directory:
+#        MODEL_DIR=/your/models/dir docker compose -f meromero-heretic-mtp.yml up -d
+#   4. curl http://localhost:8020/v1/models
+# ===========================================================================
+services:
+  atomic-gemma4-31b-mtp:
+    image: atomic-llama-cpp:server-cuda
+    container_name: ${ESTATE_CONTAINER:-atomic-gemma4-31b-mtp}
+    restart: unless-stopped
+    ports:
+    - ${ESTATE_PORT:-${PORT:-8020}}:8080
+    volumes:
+    - ${MODEL_DIR:-/home/peteryu/llms}:/models:ro
+    entrypoint:
+    - /app/llama-server
+    command:
+    - --host
+    - 0.0.0.0
+    - --port
+    - "8080"
+    - -m
+    - /models/${GGUF_FILE:-G4-MeroMero-31B-uncensored-heretic-Q4_K_M.gguf}
+    - --mtp-head
+    - /models/${MTP_GGUF:-gemma-4-31B-it-assistant.Q4_K_M.gguf}
+    - --spec-type
+    - mtp
+    - --draft-block-size
+    - "3"
+    - --draft-max
+    - "8"
+    - --draft-min
+    - "0"
+    - -c
+    - ${CTX_SIZE:-131072}
+    - -ngl
+    - "99"
+    - -ngld
+    - "99"
+    - -fa
+    - "on"
+    - --cache-type-k
+    - q4_0
+    - --cache-type-v
+    - q4_0
+    - --ctx-checkpoints
+    - "0"
+    - -np
+    - "1"
+    - --jinja
+    - --reasoning
+    - "on"
+    - --temp
+    - "1.0"
+    - --top-p
+    - "0.95"
+    - --top-k
+    - "64"
+    - --metrics
+    deploy:
+      resources:
+        reservations:
+          devices:
+          - driver: nvidia
+            device_ids:
+            - ${ESTATE_GPUS:-${CUDA_VISIBLE_DEVICES:-0}}
+            capabilities:
+            - compute
+            - utility
