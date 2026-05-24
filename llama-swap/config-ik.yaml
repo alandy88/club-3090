@@ -1,5 +1,9 @@
 # =============================================================================
-# llama-swap config — 4 models, single RTX 3090 (24 GB), hot-swap on demand
+# llama-swap config — 6 models, single RTX 3090 (24 GB), hot-swap on demand
+#
+# Shared flag sets live in `macros:` and are spliced into each model's `cmd`
+# via ${macro_name}. llama-swap shlex-parses the result, so whitespace
+# (including newlines from `|` block scalars) is irrelevant.
 # =============================================================================
 
 healthCheckTimeout: 120
@@ -7,166 +11,124 @@ logLevel: debug
 logToStdout: "upstream"
 globalTTL: 300
 
+macros:
+  # ---------- Qwen3.6 vision-MoE (ik-llama backend) ----------
+  # Per-model overrides only: -m, --mmproj, and (for 35B-A3B) -ngld 99.
+  "qwen_base": |
+    ik-llama-server
+    --chat-template-kwargs '{"preserve_thinking":true}'
+    --port ${PORT}
+    --threads 8
+    --threads-batch 8
+    --threads-mtmd 8
+    -c 156000
+    -ngl 99
+    -fa on
+    -b 1024
+    -ub 1024
+    --cache-type-k q8_0
+    --cache-type-v q8_0
+    -khad
+    -vhad
+    --cache-ram 32768
+    --cache-ram-similarity 0.50
+    --cache-ram-n-min 0
+    --multi-token-prediction
+    --draft-max 5
+    --draft-p-min 0.5
+    --merge-qkv
+    --merge-up-gate-experts
+    --ctx-checkpoints 32
+    -np 1
+    --jinja
+    --parallel-tool-calls
+    --reasoning on
+    --reasoning-format deepseek
+    --chat-template-file /models/qwen3.6-chat-template.jinja
+    --no-mmproj-offload
+    --image-min-tokens 1024
+    --image-max-tokens 4096
+    --temp 0.6
+    --top-p 0.95
+    --top-k 20
+    --min-p 0
+    --metrics
+    --verbose-prompt
+
+  # ---------- Gemma-4 31B MTP (atomic-llama backend) ----------
+  # Engine + cache + MTP-head are identical across all 4 Gemma-4 variants.
+  # Sampling is split out so Gembrain (different sampling profile) can opt out.
+  "gemma_mtp_engine": |
+    atomic-llama-server
+    --port ${PORT}
+    --mtp-head /models/gemma-4-31B-it-assistant.Q4_K_M.gguf
+    --spec-type mtp
+    --draft-block-size 3
+    --draft-max 8
+    --draft-min 0
+    -c 156000
+    -ngl 99
+    -ngld 99
+    -fa on
+    --cache-type-k turbo3
+    --cache-type-v turbo3
+    -ctkd turbo3
+    -ctvd turbo3
+    --ctx-checkpoints 0
+    -np 1
+    --jinja
+    --reasoning on
+    --metrics
+
+  # Sampling used by the 3 "creative" Gemma-4 heretic variants.
+  # Gembrain ships its own (top-k 0 / min-p / adaptive).
+  "gemma_sampling_creative": |
+    --temp 1.0
+    --top-p 0.95
+    --top-k 64
+    --dry-multiplier 0.4
+    --dry-base 1.75
+    --dry-allowed-length 2
+    --dry-penalty-last-n -1
+
 models:
+  # -------- Qwen3.6 vision-MoE --------
   "Qwen3.6-27B-MTP-IQ4_KS":
     cmd: |
-      ik-llama-server
-      --chat-template-kwargs '{"preserve_thinking":true}'
-      --port ${PORT}
+      ${qwen_base}
       -m /models/Qwen3.6-27B-MTP-IQ4_KS.gguf
       --mmproj /models/mmproj-Qwen3.6-27B-BF16.gguf
-      --threads 8
-      --threads-batch 8
-      --threads-mtmd 8
-      -c 156000
-      -ngl 99
-      -fa on
-      -b 1024
-      -ub 1024
-      --cache-type-k q8_0
-      --cache-type-v q8_0
-      -khad
-      -vhad
-      --cache-ram 32768
-      --cache-ram-similarity 0.50
-      --cache-ram-n-min 0
-      --multi-token-prediction
-      --draft-max 5
-      --draft-p-min 0.5
-      --merge-qkv
-      --merge-up-gate-experts
-      --ctx-checkpoints 32
-      -np 1
-      --jinja
-      --parallel-tool-calls
-      --reasoning on
-      --reasoning-format deepseek
-      --chat-template-file /models/qwen3.6-chat-template.jinja
-      --no-mmproj-offload
-      --image-min-tokens 1024
-      --image-max-tokens 4096
-      --temp 0.6
-      --top-p 0.95
-      --top-k 20
-      --min-p 0
-      --metrics
-      --verbose-prompt
 
+  "Qwen3.6-35B-A3B-IQ4_XS":
+    cmd: |
+      ${qwen_base}
+      -m /models/Qwen3.6-35B-A3B-IQ4_XS-4.19bpw.gguf
+      --mmproj /models/mmproj-Qwen3.6-35B-A3B-BF16.gguf
+      -ngld 99
+
+  # -------- Gemma-4 31B MTP --------
   "G4-MeroMero-31B-heretic-Q4_K_M":
     cmd: |
-      atomic-llama-server
-      --port ${PORT}
+      ${gemma_mtp_engine}
       -m /models/G4-MeroMero-31B-uncensored-heretic-Q4_K_M.gguf
-      --mtp-head /models/gemma-4-31B-it-assistant.Q4_K_M.gguf
-      --spec-type mtp
-      --draft-block-size 3
-      --draft-max 8
-      --draft-min 0
-      -c 156000
-      -ngl 99
-      -ngld 99
-      -fa on
-      --cache-type-k turbo3
-      --cache-type-v turbo3
-      -ctkd turbo3
-      -ctvd turbo3
-      --ctx-checkpoints 0
-      -np 1
-      --jinja
-      --reasoning on
-      --temp 1.0
-      --top-p 0.95
-      --top-k 64
-      --dry-multiplier 0.4
-      --dry-base 1.75
-      --dry-allowed-length 2
-      --dry-penalty-last-n -1
-      --metrics
+      ${gemma_sampling_creative}
 
   "gemma-4-31B-it-uncensored-heretic-Q4_K_M":
     cmd: |
-      atomic-llama-server
-      --port ${PORT}
+      ${gemma_mtp_engine}
       -m /models/gemma-4-31B-it-uncensored-heretic-Q4_K_M.gguf
-      --mtp-head /models/gemma-4-31B-it-assistant.Q4_K_M.gguf
-      --spec-type mtp
-      --draft-block-size 3
-      --draft-max 8
-      --draft-min 0
-      -c 156000
-      -ngl 99
-      -ngld 99
-      -fa on
-      --cache-type-k turbo3
-      --cache-type-v turbo3
-      -ctkd turbo3
-      -ctvd turbo3
-      --ctx-checkpoints 0
-      -np 1
-      --jinja
-      --reasoning on
-      --temp 1.0
-      --top-p 0.95
-      --top-k 64
-      --dry-multiplier 0.4
-      --dry-base 1.75
-      --dry-allowed-length 2
-      --dry-penalty-last-n -1
-      --metrics
+      ${gemma_sampling_creative}
 
   "G4-Ortenzya-31B-heretic-Q4_K_M":
     cmd: |
-      atomic-llama-server
-      --port ${PORT}
+      ${gemma_mtp_engine}
       -m /models/gemma-4-Ortenzya-The-Creative-Wordsmith-31B-it-uncensored-heretic-Q4_K_M.gguf
-      --mtp-head /models/gemma-4-31B-it-assistant.Q4_K_M.gguf
-      --spec-type mtp
-      --draft-block-size 3
-      --draft-max 8
-      --draft-min 0
-      -c 156000
-      -ngl 99
-      -ngld 99
-      -fa on
-      --cache-type-k turbo3
-      --cache-type-v turbo3
-      -ctkd turbo3
-      -ctvd turbo3
-      --ctx-checkpoints 0
-      -np 1
-      --jinja
-      --reasoning on
-      --temp 1.0
-      --top-p 0.95
-      --top-k 64
-      --dry-multiplier 0.4
-      --dry-base 1.75
-      --dry-allowed-length 2
-      --dry-penalty-last-n -1
-      --metrics
+      ${gemma_sampling_creative}
 
   "Gembrain-31B-Q4_K_M":
     cmd: |
-      atomic-llama-server
-      --port ${PORT}
+      ${gemma_mtp_engine}
       -m /models/Gembrain-31B-Q4_K_M.gguf
-      --mtp-head /models/gemma-4-31B-it-assistant.Q4_K_M.gguf
-      --spec-type mtp
-      --draft-block-size 3
-      --draft-max 8
-      --draft-min 0
-      -c 156000
-      -ngl 99
-      -ngld 99
-      -fa on
-      --cache-type-k turbo3
-      --cache-type-v turbo3
-      -ctkd turbo3
-      -ctvd turbo3
-      --ctx-checkpoints 0
-      -np 1
-      --jinja
-      --reasoning on
       --temp 1.0
       --top-p 0.95
       --top-k 0
@@ -177,49 +139,3 @@ models:
       --dry-penalty-last-n -1
       --adaptive-target 0.6
       --adaptive-decay 0.5
-      --metrics
-
-  "Qwen3.6-35B-A3B-IQ4_XS":
-    cmd: |
-      ik-llama-server
-      --chat-template-kwargs '{"preserve_thinking":true}'
-      --port ${PORT}
-      -m /models/Qwen3.6-35B-A3B-IQ4_XS-4.19bpw.gguf
-      --mmproj /models/mmproj-Qwen3.6-35B-A3B-BF16.gguf
-      --threads 8
-      --threads-batch 8
-      --threads-mtmd 8
-      -c 156000
-      -ngl 99
-      -ngld 99
-      -fa on
-      -b 1024
-      -ub 1024
-      --cache-type-k q8_0
-      --cache-type-v q8_0
-      -khad
-      -vhad
-      --cache-ram 32768
-      --cache-ram-similarity 0.50
-      --cache-ram-n-min 0
-      --multi-token-prediction
-      --draft-max 5
-      --draft-p-min 0.5
-      --merge-qkv
-      --merge-up-gate-experts
-      --ctx-checkpoints 32
-      -np 1
-      --jinja
-      --parallel-tool-calls
-      --reasoning on
-      --reasoning-format deepseek
-      --chat-template-file /models/qwen3.6-chat-template.jinja
-      --no-mmproj-offload
-      --image-min-tokens 1024
-      --image-max-tokens 4096
-      --temp 0.6
-      --top-p 0.95
-      --top-k 20
-      --min-p 0
-      --metrics
-      --verbose-prompt
