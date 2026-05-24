@@ -4,13 +4,20 @@
 #   - ik-llama-server     (ik_llama.cpp, locally built)
 #   - atomic-llama-server (atomic-llama-cpp-turboquant, for Gemma 4 MTP)
 #   - bee-llama-server    (beellama.cpp, DFlash + TurboQuant)
+#
+# Base images are pinned to immutable refs for reproducibility:
+#   - Local images use date-suffixed tags (separate from the floating
+#     :server-cuda tag the sibling repo writes). Re-tag and update here
+#     after rebuilding a sibling fork; `make pins` shows drift.
+#   - Upstream is pinned to both the date-tagged variant AND its @sha256
+#     digest, so a tag-rewrite by upstream would fail-loud.
 # =============================================================================
 
-FROM atomic-llama-cpp:server-cuda AS atomic-source
-FROM ik-llama-cpp:server-cuda AS ik-source
-FROM beellama:server-cuda AS bee-source
+FROM atomic-llama-cpp:server-cuda-2026-05-19 AS atomic-source
+FROM ik-llama-cpp:server-cuda-2026-05-23 AS ik-source
+FROM beellama:server-cuda-2026-05-18 AS bee-source
 
-FROM ghcr.io/mostlygeek/llama-swap:unified-cuda
+FROM ghcr.io/mostlygeek/llama-swap:unified-cuda-2026-05-21@sha256:0c954d3d9813369248f2245d6c29fbb6b49ac7c64052702a6ddf07f9f5d4c9b2
 
 # Overlay locally built ik-llama-server with its own libs
 COPY --from=ik-source /llama-server /opt/ik/llama-server

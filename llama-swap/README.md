@@ -71,6 +71,26 @@ Edit `Dockerfile` (add a `FROM ... AS X-source` and `COPY --from=X-source`),
 write a wrapper script `X-llama-server.sh`, register it in the
 `COPY ... RUN chmod +x ...` lines, then `make build`.
 
+## Updating a pinned base image
+
+The `Dockerfile` pins all four `FROM` refs to immutable tags (local images
+are date-tagged, upstream uses `@sha256:`). When a sibling repo rebuilds
+its `:server-cuda` floating tag, the date-tagged ref the Dockerfile uses
+still points at the old layer — `make build` keeps working unchanged.
+
+To adopt a new sibling build:
+
+```sh
+make pins                                          # see what drifted
+docker tag <image>:server-cuda <image>:server-cuda-YYYY-MM-DD
+# edit Dockerfile: bump the date suffix on the FROM line
+make build && make smoke
+```
+
+For upstream (`ghcr.io/mostlygeek/llama-swap`): docker pull, then read
+`make pins` for the new `sha256:` digest and update the `@sha256:` suffix
+on its `FROM` line.
+
 ## Debugging
 
 ```sh
