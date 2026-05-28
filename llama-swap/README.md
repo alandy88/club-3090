@@ -19,15 +19,33 @@ behind a single OpenAI-compatible endpoint on port 8020.
 
 ## Prerequisites
 
-Three locally-built parent images (see sibling repos):
+Three locally-built parent images (date-tagged, pinned in Dockerfile):
 
 ```
-atomic-llama-cpp:server-cuda   # from ~/Git/atomic-llama-cpp-turboquant
-ik-llama-cpp:server-cuda       # from ~/Git/ik_llama.cpp
-beellama:server-cuda           # from ~/Git/beellama.cpp
+atomic-llama-cpp:server-cuda-YYYY-MM-DD   # from ~/Git/atomic-llama-cpp-turboquant
+ik-llama-cpp:server-cuda-YYYY-MM-DD       # from ~/Git/ik_llama.cpp
+beellama:server-cuda-YYYY-MM-DD           # from ~/Git/beellama.cpp
 ```
 
 Plus GGUF weights at `$MODEL_DIR` (default `/home/peteryu/llms`).
+
+### Building ik-llama
+
+```sh
+cd ~/Git/ik_llama.cpp
+git pull origin main
+docker build \
+  -f docker/ik_llama-cuda.Containerfile \
+  --target server \
+  --build-arg CUDA_DOCKER_ARCH='86-real' \
+  --build-arg GGML_NATIVE=OFF \
+  -t ik-llama-cpp:server-cuda-YYYY-MM-DD .
+```
+
+- Uses `docker/ik_llama-cuda.Containerfile` (CUDA 12.6, Ubuntu 24.04, ccache)
+- Target `server` puts binary at `/app/llama-server`, libs at `/app/lib/`
+- ccache is persistent — first build ~10 min, subsequent ~1-2 min
+- After building, update the `FROM ik-llama-cpp:...` pin in `Dockerfile`
 
 ## Quick start
 
@@ -82,8 +100,9 @@ To adopt a new sibling build:
 
 ```sh
 make pins                                          # see what drifted
-docker tag <image>:server-cuda <image>:server-cuda-YYYY-MM-DD
-# edit Dockerfile: bump the date suffix on the FROM line
+# For ik-llama: rebuild with Containerfile (see Prerequisites)
+# For others: docker tag <image>:server-cuda <image>:server-cuda-YYYY-MM-DD
+# Then edit Dockerfile: bump the date suffix on the FROM line
 make build && make smoke
 ```
 
