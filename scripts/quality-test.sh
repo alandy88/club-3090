@@ -38,12 +38,18 @@ MODES
              ~15-25 min, no Docker required
   --full     8 packs:  + bugfind-15, hermesagent-20, cli-40
              ~25-40 min, requires Docker (auto-starts sandbox containers)
+  --reasoning
+             Reasoning suite: humaneval-plus-30, lcb-v6-30, gpqa-diamond
+             metadata gate, gsm-symbolic-30. Separate from --full; code
+             packs require Docker.
 
   --pack PACK_ID   Run a single pack (overrides mode flag).
                    Available IDs:
                      toolcall-15  instructfollow-15  structoutput-15
                      dataextract-15  reasonmath-15
                      bugfind-15  cli-40  hermesagent-20  (require Docker)
+                     humaneval-plus-30  lcb-v6-30  gsm-symbolic-30
+                     gpqa-diamond  (gated metadata-only until access approved)
 
 OPTIONS
   -h, --help       Show this help and exit
@@ -60,8 +66,10 @@ OPTIONS (extra)
                    /v1/models returns the first (often wrong) registered model.
   --timeout-per-case N
                    Pass through to benchlocal-cli as --timeout-per-case N
-                   (seconds). Default: 60. For aider-polyglot-30 on low-power
-                   single-card rigs, bump to 3600+ to avoid mid-batch kills.
+                   (seconds). When NOT set, benchlocal-cli uses per-pack
+                   metadata defaults (60s for the deterministic packs, 300s
+                   for cli-40 / hermesagent-20, 1800s for aider-polyglot-30;
+                   see benchlocal-cli #41). Set this only to override.
   --sandbox-log-dir DIR
                    Capture each sandboxed pack's container log to
                    DIR/sandbox-<pack_id>.log before teardown (forwarded to
@@ -79,9 +87,10 @@ OPTIONS (extra)
                    models are evaluated with request-level thinking enabled.
                    Also settable via ENABLE_THINKING=1 env.
   --thinking-max-tokens N
-                   Forward to benchlocal-cli --thinking-max-tokens N when
-                   --enable-thinking / ENABLE_THINKING=1 is active. Also
-                   settable via THINKING_MAX_TOKENS env.
+                   Forward to benchlocal-cli --thinking-max-tokens N. The
+                   budget applies only to packs whose thinking gate resolves on
+                   (pack default or --enable-thinking). Also settable via
+                   THINKING_MAX_TOKENS env.
 
 ENV VARS
   URL              Endpoint base URL (default: auto-detected via preflight,
@@ -90,18 +99,22 @@ ENV VARS
                    verbatim — no /v1/models override. If UNSET, auto-detected
                    from /v1/models (fixes the wrong-name → HTTP 404 footgun on
                    single-model composes). --model and MODEL are equivalent.
-  TIMEOUT_PER_CASE Per-scenario HTTP timeout in seconds (default: 60).
-                   --timeout-per-case overrides this when both are set.
+  TIMEOUT_PER_CASE Per-scenario HTTP timeout override in seconds. UNSET means
+                   benchlocal-cli's per-pack metadata default applies (60s for
+                   the deterministic packs, 300s for cli-40 / hermesagent-20,
+                   1800s for aider-polyglot-30; see benchlocal-cli #41).
+                   --timeout-per-case is equivalent.
   ENABLE_THINKING Set to 1 to send request-level enable_thinking=true via
                    benchlocal-cli --enable-thinking. Default: 0.
   THINKING_MAX_TOKENS
-                   Optional thinking budget passed through to benchlocal-cli
-                   --thinking-max-tokens when thinking is enabled.
+                   Optional thinking budget passed through to benchlocal-cli.
+                   Applies only to packs whose thinking gate resolves on.
 
 EXAMPLES
   bash scripts/quality-test.sh                          # --medium against running compose
   bash scripts/quality-test.sh --quick                  # quicker, 2 packs only
   bash scripts/quality-test.sh --full                   # everything, needs Docker
+  bash scripts/quality-test.sh --reasoning              # HE+/LCB/GSM/GPQA reasoning suite
   bash scripts/quality-test.sh --pack toolcall-15       # just the tool-call pack
   bash scripts/quality-test.sh --pack aider-polyglot-30 --timeout-per-case 3600
   URL=http://localhost:8030 bash scripts/quality-test.sh # against a different port
@@ -138,7 +151,17 @@ URL="${URL:-http://localhost:8020}"
 MODEL_EXPLICIT=0
 [[ -n "${MODEL:-}" ]] && MODEL_EXPLICIT=1
 MODEL="${MODEL:-qwen3.6-27b-autoround}"
-TIMEOUT_PER_CASE="${TIMEOUT_PER_CASE:-60}"
+
+# Track whether the user explicitly set TIMEOUT_PER_CASE (via env or
+# --timeout-per-case flag). When unset, we DON'T pass --timeout-per-case to
+# benchlocal-cli, so it uses per-pack metadata defaults (benchlocal-cli #41:
+# 60s deterministic, 300s cli-40/hermes, 1800s aider). Passing 60 by default
+# would have defeated those pack-aware budgets — the wrapper would override
+# every agentic pack back to 60s.
+TIMEOUT_PER_CASE_SET=0
+if [[ -n "${TIMEOUT_PER_CASE:-}" ]]; then
+  TIMEOUT_PER_CASE_SET=1
+fi
 
 # ---- arg parsing -------------------------------------------------------------
 
@@ -154,7 +177,7 @@ THINKING_MAX_TOKENS="${THINKING_MAX_TOKENS:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --quick|--medium|--full)
+    --quick|--medium|--full|--reasoning)
       MODE="$1"
       shift
       ;;
@@ -201,6 +224,7 @@ while [[ $# -gt 0 ]]; do
         echo "✗ --timeout-per-case requires a positive integer (seconds)" >&2
         exit 2
       fi
+      TIMEOUT_PER_CASE_SET=1
       shift 2
       ;;
     --sampling-from-server)
@@ -328,7 +352,7 @@ sys.exit(0 if walk(obj) else 1)
 }
 
 if [[ "$ENABLE_THINKING" != "1" ]] && server_reasoning_on; then
-  echo "[quality-test] WARN: server appears to have reasoning enabled, but requests will send enable_thinking=false. Use --enable-thinking or ENABLE_THINKING=1 for reasoning-on evals." >&2
+  echo "[quality-test] WARN: server appears to have reasoning enabled, but --enable-thinking is not forced. Pack defaults still apply; use --enable-thinking or ENABLE_THINKING=1 to force thinking on for every pack." >&2
 fi
 
 # ---- run benchlocal-cli ------------------------------------------------------
@@ -338,10 +362,15 @@ mkdir -p "$RESULTS_DIR"
 TS=$(date +%Y-%m-%dT%H-%M-%S)
 JSON_OUT="${RESULTS_DIR}/quality-${TS}.json"
 
-if [[ -n "$PACK" ]]; then
-  echo "[quality-test] pack=${PACK}  endpoint=${URL}  model=${MODEL}  timeout=${TIMEOUT_PER_CASE}s"
+if [[ "$TIMEOUT_PER_CASE_SET" == "1" ]]; then
+  TIMEOUT_DISPLAY="${TIMEOUT_PER_CASE}s"
 else
-  echo "[quality-test] mode=${MODE}  endpoint=${URL}  model=${MODEL}  timeout=${TIMEOUT_PER_CASE}s"
+  TIMEOUT_DISPLAY="pack-default (60s deterministic / 300s cli-40+hermes / 1800s aider)"
+fi
+if [[ -n "$PACK" ]]; then
+  echo "[quality-test] pack=${PACK}  endpoint=${URL}  model=${MODEL}  timeout=${TIMEOUT_DISPLAY}"
+else
+  echo "[quality-test] mode=${MODE}  endpoint=${URL}  model=${MODEL}  timeout=${TIMEOUT_DISPLAY}"
 fi
 echo "[quality-test] results JSON → ${JSON_OUT}"
 echo
@@ -351,10 +380,12 @@ CLI_ARGS=(
   run
   --endpoint "${URL}"
   --model "${MODEL}"
-  --timeout-per-case "${TIMEOUT_PER_CASE}"
   --output markdown
   --save-json "${JSON_OUT}"
 )
+if [[ "$TIMEOUT_PER_CASE_SET" == "1" ]]; then
+  CLI_ARGS+=(--timeout-per-case "${TIMEOUT_PER_CASE}")
+fi
 if [[ "$SANDBOXED_ONLY" == "1" ]]; then
   CLI_ARGS+=(--sandboxed-only)
 elif [[ -n "$PACK" ]]; then
@@ -378,12 +409,10 @@ fi
 if [[ "$ENABLE_THINKING" == "1" ]]; then
   CLI_ARGS+=(--enable-thinking)
   echo "[quality-test] thinking: enabled (non-canonical)"
-  if [[ -n "$THINKING_MAX_TOKENS" ]]; then
-    CLI_ARGS+=(--thinking-max-tokens "$THINKING_MAX_TOKENS")
-    echo "[quality-test] thinking max tokens: $THINKING_MAX_TOKENS"
-  fi
-elif [[ -n "$THINKING_MAX_TOKENS" ]]; then
-  echo "[quality-test] NOTE: THINKING_MAX_TOKENS is set but thinking is off; ignoring it. Set ENABLE_THINKING=1 or --enable-thinking." >&2
+fi
+if [[ -n "$THINKING_MAX_TOKENS" ]]; then
+  CLI_ARGS+=(--thinking-max-tokens "$THINKING_MAX_TOKENS")
+  echo "[quality-test] thinking max tokens: $THINKING_MAX_TOKENS (applies to thinking-enabled packs)"
 fi
 
 # Run; capture exit code so we can also try to emit the compact one-liner

@@ -43,7 +43,9 @@ vLLM: NVIDIA-only (CUDA). llama.cpp: yes — pick the right Docker image (`ghcr.
 
 ### Does this work on Windows / WSL2?
 
-Yes — both engines work on WSL2. Make sure GPU passthrough is set up (`nvidia-smi` works inside WSL). Native Windows: vLLM doesn't support it; llama.cpp does — but use a native llama.cpp build, not Docker.
+Yes — both engines work on WSL2. Make sure GPU passthrough is set up (`nvidia-smi` works inside WSL). Native Windows (no WSL): vLLM doesn't support it, and **club-3090's scripts/composes don't run there either** (bash + Docker + Linux paths) — only the *upstream* llama.cpp binary works, by hand. For club-3090's tooling on Windows, use WSL2 (see [WSL_SETUP.md](WSL_SETUP.md)).
+
+> **Setting up from scratch?** Start with the step-by-step [WSL2 setup guide](WSL_SETUP.md) (install → driver → `.wslconfig` RAM → Docker → ext4/CRLF gotchas → weights → boot). The rest of this answer is the **runtime tuning** that guide links back to.
 
 **WSL2 adds ~1.3 GiB of invisible GPU overhead** — the Windows display driver, CUDA runtime, and WDDM reserve VRAM that `nvidia-smi` doesn't report at idle but is locked once a container starts. On a 24 GB card that leaves you with **~22.7 GB usable** instead of 24 GB.
 
@@ -66,10 +68,10 @@ Yes — both engines work on WSL2. Make sure GPU passthrough is set up (`nvidia-
 
 ```sh
 # llamacpp/mtp — drop to 131K for WSL2 headroom
-CTX_SIZE=131072 UBATCH_SIZE=1024 docker compose -f models/qwen3.6-27b/llama-cpp/compose/single/mtp.yml up -d
+CTX_SIZE=131072 UBATCH_SIZE=1024 docker compose -f models/qwen3.6-27b/llama-cpp/compose/single/unsloth-q4km/mtp.yml up -d
 
 # llamacpp/mtp-vision — drop to 131K
-CTX_SIZE=131072 UBATCH_SIZE=1024 docker compose -f models/qwen3.6-27b/llama-cpp/compose/single/mtp-vision.yml up -d
+CTX_SIZE=131072 UBATCH_SIZE=1024 docker compose -f models/qwen3.6-27b/llama-cpp/compose/single/unsloth-q4km/mtp-vision.yml up -d
 ```
 
 The ik_llama composes (IQ4_KS quants are smaller, ~15.1 GB weights) fit at defaults on WSL2.
@@ -134,7 +136,7 @@ AutoRound (Lorbus) gave us +9% TPS over AWQ on this model. GPTQ has a similar qu
 
 Look at the [TPS chart](../README.md#measured-tps-at-a-glance) — single-card vLLM is 51-55 TPS narrative / 67-70 code at 48K, which beats most consumer-3090 numbers we've seen reported. If you're seeing materially lower, the most common causes are:
 1. Power cap < 230 W (this rig benches at 230 W; 280 W gives ~+5%, 350 W ~+10%)
-2. Wrong compose for your prompt shape (use the `docker-compose.yml` 48K default for chat — don't pick `long-vision.yml` if you don't need 198K)
+2. Wrong compose for your prompt shape (use the `tq3-mtp.yml` 48K single-card default for chat — don't pick `long-vision.yml` if you don't need 198K)
 3. Genesis tree drift — `git pull origin main` between bench runs can change AL by ±15%. We pin to commit `bf667c7` for this reason.
 
 ### My TPS dropped after switching to 198K context. Why?
@@ -153,7 +155,7 @@ For the full deep dive — empirical bisection, root-cause walk-through, who-can
 
 Sandermage's K+1 verify routing PR for TurboQuant spec-decode. We tested a local post-#41434 rebase on 2026-05-11 and it is **not** enough for our Qwen3.6-27B Genesis-free TQ+MTP path: MTP acceptance becomes perfect, but long-context recall corrupts into repeated tokens and tool/multi-turn paths regress. Removing the overlay is better, but TQ3/TQ4/k8v4 + MTP still fail needle recall.
 
-The working paths today are `dual/tq3-nomtp.yml` without Genesis, or Genesis-backed TQ+MTP with P67/P67b. Treat #40914 as adjacent upstream work, not a shippable closure for this stack.
+The working paths today are `dual/autoround-int4/tq3-nomtp.yml` without Genesis, or Genesis-backed TQ+MTP with P67/P67b. Treat #40914 as adjacent upstream work, not a shippable closure for this stack.
 
 ### What's PN8?
 
@@ -165,10 +167,10 @@ Not a bug — it's the canonical signature of `int8_per_token_head` quantization
 
 This shows up clearly in the head-to-head matrix on dual-3090:
 
-- **INT8 PTH** (`dual/int8.yml`) — 85 narr / 121 code TPS single-stream, 605K KV pool / 2.31× concurrency at 262K, p50 decode TPS stays near baseline at concurrency (no aggregate lift)
-- **fp8 default** (`dual/docker-compose.yml`) — lower per-stream but scales to ~9× concurrency at 262K, aggregate throughput goes up almost linearly with stream count
+- **INT8 PTH** (`dual/autoround-int4/int8.yml`) — 85 narr / 121 code TPS single-stream, 605K KV pool / 2.31× concurrency at 262K, p50 decode TPS stays near baseline at concurrency (no aggregate lift)
+- **fp8 default** (`dual/autoround-int4/fp8-mtp.yml`) — lower per-stream but scales to ~9× concurrency at 262K, aggregate throughput goes up almost linearly with stream count
 
-So pick by workload: INT8 PTH if you want max single-stream TPS and don't need many concurrent users; fp8 if you want aggregate throughput across many streams. If you want **both** — high single-stream *and* high concurrency on the same compose — the answer is the Genesis-backed TQ3+MTP path (`dual/tq3-mtp-genesis.yml`): 89 / 119 narr / code TPS single-stream + 1.22M KV pool / 4.66× concurrency on the same PCIe dual-3090 rig (~5pp quality cost vs INT8 PTH on the 150-scenario quality suite, within noise on aider-polyglot-30 — see [docs/TQ3_MTP_GENESIS.md](TQ3_MTP_GENESIS.md) for the full writeup). This is also why `dual/turbo.yml` (4-stream production variant) ships TQ3+MTP rather than INT8 PTH — INT8 PTH wouldn't scale across the 4 concurrent streams.
+So pick by workload: INT8 PTH if you want max single-stream TPS and don't need many concurrent users; fp8 if you want aggregate throughput across many streams. If you want **both** — high single-stream *and* high concurrency on the same compose — the answer is the Genesis-backed TQ3+MTP path (`dual/autoround-int4/tq3-mtp-genesis.yml`): 89 / 119 narr / code TPS single-stream + 1.22M KV pool / 4.66× concurrency on the same PCIe dual-3090 rig (~5pp quality cost vs INT8 PTH on the 150-scenario quality suite, within noise on aider-polyglot-30 — see [docs/TQ3_MTP_GENESIS.md](TQ3_MTP_GENESIS.md) for the full writeup). This is also why `dual/autoround-int4/turbo.yml` (4-stream production variant) ships TQ3+MTP rather than INT8 PTH — INT8 PTH wouldn't scale across the 4 concurrent streams.
 
 If your numbers on the same compose look different from ours by >15%, the most likely sources of the gap are: power cap (370W vs 290W = ~10-15%), vLLM nightly (pre-#41434 was ~15% slower on Qwen3-Next due to GPU↔CPU syncs in attention), Genesis patches loaded vs not (~10-15% via P67 + PN12 + PN25 on Qwen3-Next), MTP `n` value, or the prompt shape. Run `bash scripts/rebench-full.sh` to capture the canonical 5-phase numbers and we can compare apples-to-apples — see the [Numbers from your rig](https://github.com/noonghunna/club-3090/issues/new?template=numbers-from-your-rig.yml) issue template to share them back.
 
@@ -182,6 +184,31 @@ bash scripts/rebench-full.sh \
 ```
 
 The chained scripts run in host-only mode (no `docker logs` / `docker inspect` scrapes) when `--url` is set, so the entire suite works against any OpenAI-API endpoint.
+
+### Which KV-cache quant should I use? (`q4_0` / `q5_0` / `turbo3` / `fp8`)
+
+KV-cache quant trades **quality ↔ context ceiling ↔ a little speed**, and the metric that matters is **tail precision** (99.9th-percentile KL divergence), not perplexity — the worst 0.1% of positions are exactly where quantization breaks JSON keys, closing braces, and tool-call grammar. [Anbeeld's KV-quant long-context benchmarks](https://anbeeld.com/articles/kv-cache-quantization-benchmarks-for-long-context) measured this on **Qwen3.6-27B / single RTX 3090 — the same model + GPU as this stack**:
+
+| K / V | % of bf16 KV | tail precision | use |
+|---|---:|---:|---|
+| `q8_0` / `q6_0` | 47% | 94.3% | best you'd actually run |
+| `q5_0` / `q5_0` | 34% | 93.2% | quality default (coding / agents / JSON) |
+| `q5_0` / `q4_1` | 33% | 92.7% | VRAM-constrained quality |
+| **`q4_0` / `q4_0`** | **28%** | **88.9%** | **shipped default — favors max context** |
+| `turbo3_tcq` | 20% | 81.6% | extreme context only — visible loss on structured output |
+| `turbo2` | 14% | 54.4% | last resort (no code / JSON / math) |
+
+Two takeaways: **(1) K is the sensitive cache** — keep K higher and starve V (`q5_0`/`q4_1` beats symmetric `q4_1` at the same size); **(2) turbo/TCQ only pays at 2–3 bit** — at 4+ bits scalar `q4_0`/`q5_0` wins, and turbo3 is *not* quality-neutral (the TurboQuant paper's "neutral at 3.5 bits" is a perplexity-average claim; the tail disagrees).
+
+**On this stack:** the llama.cpp / ik_llama composes default to `q4_0` (max context — the per-token loss is small *on average*, but meaningful on the tail for structured output). If you serve **coding / agent / tool-calling** traffic, bump quality with the `KV_TYPE` override (shell env wins over `.env`):
+
+```bash
+KV_TYPE=q5_0 bash scripts/switch.sh llamacpp/mtp     # ~93% tail vs q4_0's ~89%, at some context cost
+```
+
+On vLLM, `turboquant_3bit_nc` is the long-context default; where context allows, prefer `fp8_e5m2` (≈ q8-tier tail) via `KV_CACHE_DTYPE`.
+
+**Caveat:** a `verify-stress` 7/7 pass (incl. the 91K needle) does **not** certify KV-quant tail-safety — synthetic needle retrieval is blind to this drift (see [docs/CLIFFS.md](CLIFFS.md)). The gap also **grows at longer context**, so the choice matters more the bigger your prompts.
 
 ---
 

@@ -1,13 +1,18 @@
-# AGENTS.md
+# Agent guide
 
 Guidance for AI coding agents (Claude Code, Cursor, Copilot, Continue, etc.) working in this repo. Focused — only conventions an agent wouldn't infer from the code itself.
+
+> **One file, two names:** this is `CLAUDE.md` (canonical); **`AGENTS.md` is a symlink → it.** Edit `CLAUDE.md` — both names resolve to the same guide so any agent that looks for either finds it, and the two can't drift.
 
 ## Read first
 
 Before making non-trivial changes:
 
 - [`README.md`](README.md) — what the repo is, two-routes framing, repo layout
+- [`docs/README.md`](docs/README.md) — **the docs index** (user track + contributor track); start here to find any guide
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — current stack state (services, ports, paths, model + KV config)
 - [`docs/SINGLE_CARD.md`](docs/SINGLE_CARD.md) / [`docs/DUAL_CARD.md`](docs/DUAL_CARD.md) — pick-by-workload guidance + the cliffs they reference
+- [`docs/ADDING_MODELS.md`](docs/ADDING_MODELS.md) — add a model: serve-locally vs the curated-catalog workflow (see "Adding a model" below)
 - [`docs/UPSTREAM.md`](docs/UPSTREAM.md) — every upstream issue / PR we depend on or have filed (see "Upstream issues" section below for why this matters)
 - [`models/qwen3.6-27b/INTERNALS.md`](models/qwen3.6-27b/INTERNALS.md) — DFlash forensics, AutoRound rationale, Marlin pad fork, MTP head
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — what kinds of PRs land cleanly + benchmark + verify protocol
@@ -64,51 +69,52 @@ When adding the first vendored patch to a previously-rolling engine: pin in the 
 - Each variant ships with a **header table** comparing it against sibling composes in the same directory. Update both directions when adding/removing variants.
 - Keep the variant set lean. Three composes that overlap badly (similar TPS + similar context + same KV) is worse than two with a clean differentiation. Removed `fast-chat.yml` 2026-04-29 for exactly this reason.
 
-#### Compose layout — `<model>/<engine>/compose/<topology>/<feature>.yml`
+#### Compose layout — `<model>/<engine>/compose/<topology>/<quant>/<serving>.yml`
 
-The directory hierarchy encodes (model, engine, topology); the filename encodes the feature stack. No level repeats information from another.
+The directory hierarchy encodes model, engine, topology, and the weights artifact. The filename encodes only the serving stack. No level repeats information from another.
 
 | Path level | Encodes | Examples |
 |---|---|---|
 | `models/<model>/` | Model | `qwen3.6-27b` · `gemma-4-31b` |
 | `models/<model>/<engine>/` | Inference engine | `vllm` · `llama-cpp` · `sglang` |
 | `compose/<topology>/` | Hardware topology | `single` · `dual` · `multi3` · `multi4` · `multi8` |
-| `<feature>.yml` (filename) | Feature stack | `docker-compose.yml` (recommended default) · `turbo.yml` · `dflash.yml` · `nvlink-dflash-noviz.yml` |
+| `<quant>/` | Weights artifact / `weights_variant` slug | `autoround-int4` · `ubergarm-iq4ks` · `awq` |
+| `<serving>.yml` (filename) | Serving stack | `fp8-mtp.yml` · `turbo.yml` · `dflash.yml` · `nvlink-dflash-noviz.yml` |
 
 **Topology rule**: `single` (TP=1) and `dual` (TP=2) have no count ambiguity. `multi<N>` requires the count because N varies (3 / 4 / 5 / 6 / 8). Aligns with `docs/SINGLE_CARD.md` / `DUAL_CARD.md` / `MULTI_CARD.md` doc framing.
 
-**Default-per-topology rule**: each topology subdirectory has a `docker-compose.yml` — the recommended starter. Bare `cd <topology> && docker compose up` works because docker compose finds `docker-compose.yml` automatically. Variants drop the `docker-compose.` prefix because they're explicitly invoked with `-f`.
+**Default rule**: there is no filesystem default and no `default.yml`. Defaults live in `scripts/lib/profiles/compose_registry.py` (`DEFAULTS`) and are selected by registry tag (`scripts/launch.sh`, `scripts/switch.sh`, estate planner). Direct Docker use must pass `-f <path>`.
 
 **Feature suffix order** (when stacking): interconnect → drafter → KV → vision modifier. Examples:
-- `dual/turbo.yml` — TP=2 + TurboQuant KV
-- `dual/dflash.yml` — TP=2 + DFlash drafter
-- `dual/nvlink-dflash-noviz.yml` — TP=2 + NVLink + DFlash + no vision
-- `dual/int8.yml` — TP=2 + INT8 PTH KV
-- `dual/awq.yml` — TP=2 + AWQ-4bit weights
-- `multi4/dflash.yml` — TP=4 + DFlash
+- `dual/autoround-int4/turbo.yml` — TP=2 + AutoRound INT4 weights + TurboQuant KV
+- `dual/autoround-int4/dflash.yml` — TP=2 + AutoRound INT4 weights + DFlash drafter
+- `dual/autoround-int4/nvlink-dflash-noviz.yml` — TP=2 + NVLink + DFlash + no vision
+- `dual/autoround-int4/int8.yml` — TP=2 + AutoRound INT4 weights + INT8 PTH KV
+- `dual/awq/bf16-mtp.yml` — TP=2 + AWQ weights + BF16 KV + MTP
+- `multi4/autoround-int4/dflash.yml` — TP=4 + DFlash
 
 Concrete examples (post-2026-05-09 restructure):
-- `models/qwen3.6-27b/vllm/compose/single/docker-compose.yml` — Qwen single-card default
-- `models/qwen3.6-27b/vllm/compose/single/long-text.yml` — Qwen single-card text-only long-ctx variant
-- `models/qwen3.6-27b/vllm/compose/dual/docker-compose.yml` — Qwen dual default (fp8 + MTP)
-- `models/qwen3.6-27b/vllm/compose/dual/turbo.yml` — Qwen dual + TQ3
-- `models/qwen3.6-27b/vllm/compose/multi4/dflash.yml` — Qwen 4-card + DFlash
-- `models/gemma-4-31b/vllm/compose/dual/docker-compose.yml` — Gemma dual default (bf16 + MTP)
-- `models/gemma-4-31b/vllm/compose/dual/int8.yml` — Gemma dual + INT8 PTH KV
+- `models/qwen3.6-27b/vllm/compose/single/autoround-int4/tq3-mtp.yml` — Qwen single-card default
+- `models/qwen3.6-27b/vllm/compose/single/autoround-int4/long-text.yml` — Qwen single-card text-only long-ctx variant
+- `models/qwen3.6-27b/vllm/compose/dual/autoround-int4/fp8-mtp.yml` — Qwen dual default (fp8 + MTP)
+- `models/qwen3.6-27b/vllm/compose/dual/autoround-int4/turbo.yml` — Qwen dual + TQ3
+- `models/qwen3.6-27b/vllm/compose/multi4/autoround-int4/dflash.yml` — Qwen 4-card + DFlash
+- `models/gemma-4-31b/vllm/compose/dual/autoround-int4/bf16-mtp.yml` — Gemma dual default (bf16 + MTP)
+- `models/gemma-4-31b/vllm/compose/dual/autoround-int4/int8.yml` — Gemma dual + INT8 PTH KV
 
-Filename collisions across topology dirs (e.g. `dual/dflash.yml` vs `multi4/dflash.yml`) are fine — the path disambiguates. Registry tags in `scripts/switch.sh` decouple from filesystem paths; rename only the file path in the VARIANTS map and keep tags backward-compatible.
+Filename collisions across topology and quant dirs (e.g. `dual/autoround-int4/dflash.yml` vs `multi4/autoround-int4/dflash.yml`) are fine — the path disambiguates. Registry tags in `scripts/switch.sh` decouple from filesystem paths; rename only the file path in the registry / VARIANTS map and keep tags backward-compatible.
 
-**Fine-tune exception**: model-specific fine-tunes that share the canonical model's compose directory keep the fine-tune name as a filename prefix (e.g. `dual/carnice-bf16mtp.yml`, `dual/qwopus-bf16mtp.yml` under `models/qwen3.6-27b/`). Long-term those fine-tunes can graduate to their own model directories (`models/carnice-v2-27b/`, `models/qwopus3.6-27b/`) when their variant set warrants it.
+**Fine-tune convention**: model-specific fine-tunes that share the canonical model's compose directory get their own quant slug (for example `dual/carnice-bf16mtp/bf16-mtp.yml` and `dual/qwopus-bf16mtp/bf16-mtp.yml` under `models/qwen3.6-27b/`). Long-term those fine-tunes can graduate to their own model directories (`models/carnice-v2-27b/`, `models/qwopus3.6-27b/`) when their variant set warrants it.
 
 #### Patches and caches stay engine-level (NOT under a topology)
 
 `<model>/<engine>/patches/` and `<model>/<engine>/cache/` sit parallel to `compose/`, not under any topology subdirectory. Three reasons:
 
-1. **Patches are reused across topologies.** `vllm-marlin-pad/` is mounted by `dual/docker-compose.yml`, `multi4/docker-compose.yml`, and every `dual/nvlink-*.yml`. Putting it under one topology dir would force the others to symlink or duplicate.
+1. **Patches are reused across topologies and quant variants.** `vllm-marlin-pad/` is mounted by dual and multi-card AutoRound composes. Putting it under one topology or quant dir would force the others to symlink or duplicate.
 2. **Patches are scoped by (model, engine), not by topology.** A vLLM source override doesn't change based on TP=1 vs TP=4; it's an in-container engine-internal patch that applies the same way regardless of mount layout.
-3. **Caches (`torch_compile/`, `triton/`) warm-start across composes.** Sharing them at the engine level means switching from `single/docker-compose.yml` to `single/long-text.yml` reuses the JIT'd kernels instead of recompiling.
+3. **Caches (`torch_compile/`, `triton/`) warm-start across composes.** Sharing them at the engine level means switching from `single/autoround-int4/tq3-mtp.yml` to `single/autoround-int4/long-text.yml` reuses the JIT'd kernels instead of recompiling.
 
-Relative paths from a compose to its sibling patches/caches: `../../patches/...` and `../../cache/...` (one `..` from `<topology>/` up to `compose/`, second `..` up to the engine dir, then `patches/` or `cache/`). All 27 shipped composes follow this.
+Relative paths from a compose to its sibling patches/caches: `../../../patches/...` and `../../../cache/...` (one `..` from `<quant>/` to `<topology>/`, second to `compose/`, third to the engine dir, then `patches/` or `cache/`). Repo-root mounts such as `scripts/` and `models-cache/` need one extra `../` for the quant layer too.
 
 **If a future patch is genuinely topology-specific** (e.g., a kernel rewrite that only applies to TP=2), keep it at `<engine>/patches/<patch-name>/` and document the topology constraint in the patch's README. Discoverability ("one `patches/` per engine, search there") trumps the marginal benefit of a topology partition.
 
@@ -154,7 +160,16 @@ The `Caveats:` line is REQUIRED whenever Status is ⚠️ / 👁️ / ⏸️ / �
 
 This rule applies to **shipped composes AND local-only test composes** — apply the convention even before deciding whether to ship; it avoids a rename later if the experiment graduates.
 
-When testing a new model, create the directory hierarchy from the start: `models/<new-model>/<engine>/compose/<topology>/docker-compose.yml`. The hierarchy enforces the convention; filenames encode only the feature stack within that topology. When the model isn't Qwen3-Next, write `Genesis: N/A — Genesis is Qwen3-Next-specific` in the profile schema so readers don't expect Genesis-style perf folds where they don't apply.
+When testing a new model, create the directory hierarchy from the start: `models/<new-model>/<engine>/compose/<topology>/<quant-slug>/<serving>.yml`. The quant slug must match the `weights_variant` key in `scripts/lib/profiles/models/<model>.yml` and `scripts/lib/profiles/weights.py`. When the model isn't Qwen3-Next, write `Genesis: N/A — Genesis is Qwen3-Next-specific` in the profile schema so readers don't expect Genesis-style perf folds where they don't apply.
+
+#### Adding a model — full workflow → [`docs/ADDING_MODELS.md`](docs/ADDING_MODELS.md)
+
+Read that doc before catalog work; the at-a-glance for agents:
+
+- **Just serving, not cataloging?** Safetensors → `scripts/pull.sh <org/Model> --profile-like vllm/minimal`; a self-grabbed **GGUF** → copy an ik/llama compose and point `--model` at it (no registry/profile needed — see ADDING_MODELS "Run a local GGUF without the catalog"). The steps below are only for promoting a model into the **curated catalog**.
+- **Catalog steps the compose alone doesn't cover:** (1) `scripts/lib/profiles/models/<id>.yml` — `weights:` is a **map keyed by quant-slug**, not a list; (2) a `compose_registry.py` entry (`weights_variant`=slug · `kvcalc_key` — vLLM `"<model>:<profile>"`, ik/llama `"SKIP"` · `default_port` == the compose's `${PORT:-NNNN}`); (3) launchers **auto-derive** from the registry — never edit `launch.sh`/`switch.sh`; promote a default via the `DEFAULTS` map.
+- **Profile-catalog compatibility (easy to miss — hotfix #236):** the new `(model, engine, KV-format)` combo must validate or `test-profiles-compat` / `diagnose-profile` go red. Add the model's `family` to the engine's `supported_model_families` (`scripts/lib/profiles/engines/*.yml`), the KV format to the hardware profiles' `supported_kv_formats` (`scripts/lib/profiles/hardware/*.yml`); register any vendored chat-template in `scripts/lib/profiles/patches.yml` (with the symmetric-protocol `drift_guard`); bump the `test-compose-registry-disk` size-count.
+- **Run the FULL catalog test suite**, not just the serving tests in [Tests](#tests): `for t in scripts/tests/*.sh; do bash "$t"; done`. Key gates: `test-compose-registry-disk`, `test-compose-mounts-resolve` (the `../` depth), `test-model-weights-registry`, `test-switch-registry-parity` + `test-launch-registry-parity`, `test-profiles-compat`, `test-patch-attribution`, plus `tools/kv-calc.py --calibration`. A narrow subset shipped a model with two real catalog gaps (#236) — and some failures are pre-existing/env, so **baseline against the last release tag** before treating one as a blocker.
 
 #### Where do experimental / unvalidated composes live?
 
@@ -162,7 +177,7 @@ When testing a new model, create the directory hierarchy from the start: `models
 
 Workflow:
 
-1. **Author the compose** in `models/<model>/<engine>/compose/<topology>/<feature>.yml` (or `docker-compose.yml` for the topology default) with the standard profile schema header. Mark `Status: ⚠️ EXPERIMENTAL` (or `⚠️ PREVIEW` if quality issues are known) so readers know it's not validated.
+1. **Author the compose** in `models/<model>/<engine>/compose/<topology>/<quant-slug>/<serving>.yml` with the standard profile schema header. Mark `Status: ⚠️ EXPERIMENTAL` (or `⚠️ PREVIEW` if quality issues are known) so readers know it's not validated.
 2. **Don't `git add`** until validation passes. The file shows up in `git status` as `??` — that's the signal. `git ls-tree -r HEAD` lists only shipped composes; the gap between that and `ls compose/*.yml` tells you what's pending validation.
 3. **Validation gates** before promoting: `verify-full.sh` 8/8, `verify-stress.sh` 7/7 (or documented failures with rationale), `bench.sh` (numbers added to BENCHMARKS.md), `soak-test.sh SOAK_MODE=continuous` (catches Cliff 2b), `quality-test.sh --quick` (no major regression on ToolCall / InstructFollow). For pin bumps and new quants, run `quality-test.sh --medium` and add the result line to the compose's `Quality:` schema field.
 4. **Promote**: drop the `Status: ⚠️ EXPERIMENTAL` line from the profile schema, `git add`, commit. Cross-rig validation can come later via the `numbers-from-your-rig` issue template.
@@ -170,9 +185,9 @@ Workflow:
 For **entirely new models** under validation (e.g. "let's try MiniMax-M2.7"): keep the whole `models/<new-model>/` directory untracked until at least one compose validates. Avoid pushing `models/<new-model>/README.md` etc. before there's a working compose to back it up — empty model directories on master signal capability we don't actually have.
 
 References (orphan composes / patches sitting in this state as of 2026-05-09):
-- `models/gemma-4-31b/vllm/compose/dual-awq.yml` — local-only AWQ-4bit weights variant, Status: ⚠️ EXPERIMENTAL
-- `models/gemma-4-31b/vllm/compose/dual-dflash-int8.yml` — Status: ⚠️ EXPERIMENTAL (boots only with vLLM PR #42102 vendored mounts)
-- `models/qwen3.6-27b/vllm/compose/qwopus-bf16mtp.yml` — Status: ⚠️ PREVIEW (41× line repetition + NIAH drop, not production)
+- `models/gemma-4-31b/vllm/compose/dual/awq/bf16-mtp.yml` — AWQ-4bit weights variant
+- `models/gemma-4-31b/vllm/compose/dual/autoround-int4/dflash-int8.yml` — DFlash + INT8 PTH variant
+- `models/qwen3.6-27b/vllm/compose/dual/qwopus-bf16mtp/bf16-mtp.yml` — Qwopus fine-tune preview path
 
 ### Documentation
 - Don't create new docs proactively. Most non-obvious things belong in `INTERNALS.md`, `FAQ.md`, `SINGLE_CARD.md`, or `DUAL_CARD.md`. New top-level files only when there's a recurring search miss.
@@ -184,7 +199,7 @@ References (orphan composes / patches sitting in this state as of 2026-05-09):
 - `verify-full.sh` — functional (~1-2 min). Runs on every compose change.
 - `verify-stress.sh` — boundary cases (longctx ladder + tool-prefill OOM ~5-10 min). Runs on cliff-related changes.
 - `bench.sh` — canonical TPS bench (~3-5 min). Run when you change anything that could move TPS (compose flags, Genesis env vars, vLLM pin).
-- `quality-test.sh` — behavioral quality (~10-30 min depending on `--quick` / `--medium` / `--full`). Wraps [`benchlocal-cli`](https://github.com/noonghunna/benchlocal-cli) — runs verifier-backed bench packs (ToolCall-15, InstructFollow-15, StructOutput-15, etc) against the running endpoint. Catches what operational tests miss: a compose can pass verify + stress + bench + soak and still ship with degraded tool-call accuracy or instruction-follow drift from quantization or Genesis env-flips. Run before promoting `Status: ✅ Production` and before any pin bump that could shift behavior. See [`docs/QUALITY_TEST.md`](docs/QUALITY_TEST.md).
+- `quality-test.sh` — behavioral quality (~10-30 min depending on `--quick` / `--medium` / `--full`). Wraps [`benchlocal-cli`](https://github.com/noonghunna/benchlocal-cli) — runs verifier-backed bench packs (ToolCall-15, InstructFollow-15, StructOutput-15, etc) against the running endpoint. Catches what operational tests miss: a compose can pass verify + stress + bench + soak and still ship with degraded tool-call accuracy or instruction-follow drift from quantization or Genesis env-flips. Run before promoting `Status: ✅ Production` and before any pin bump that could shift behavior. **Run via this wrapper, not raw `benchlocal-cli`** — it auto-detects endpoint/model and, for localhost URLs, sets `BENCHLOCAL_HERMES_RESOLVE_LOCALHOST=1` so the sandboxed HermesAgent can reach the host model (direct `benchlocal-cli` skips that → hermes silently scores ~0/20). See [`docs/QUALITY_TEST.md`](docs/QUALITY_TEST.md).
 - `soak-test.sh` — stability (30-60 min). Run before shipping config / Genesis / memory-policy changes — catches Cliff 2b.
 
 The pipeline is layered: each script has a different question it answers ("does it serve / work / survive / fast / behave correctly / stay healthy"). Skipping any layer can mask regressions.

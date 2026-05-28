@@ -43,10 +43,10 @@
 #     llamacpp/default      alias for llamacpp/mtp (Q4_K_M MTP, no vision)
 #     llamacpp/mtp          Q4_K_M MTP + 200K (max-safe @ -ub 512; 131K @ -ub 1024 faster prefill) + q4_0 KV (fast ~60 TPS code; no vision; cliff-immune)
 #     llamacpp/bounded-thinking Q4_K_M MTP + 200K + reasoning on + per-request GBNF grammar
-#     llamacpp/mtp-vision   Q4_K_M MTP + 49K + q4_0 KV + mmproj (fast + multimodal)
+#     llamacpp/mtp-vision   Q4_K_M MTP + 150K @ 1M-px + q4_0 KV + mmproj (multimodal; 4M-px = override, lower ctx)
 #   Single-card ik_llama (IQ4_KS — ~0.5-0.8 GB leaner; best for VRAM-tight / WSL):
-#     ik-llama/iq4ks-mtp         IQ4_KS MTP + 262K + q4_0 KV (own image: ikawrakow/ik-llama-cpp)
-#     ik-llama/iq4ks-mtp-vision  IQ4_KS MTP + 160K + q4_0 KV + mmproj (multimodal)
+#     ik-llama/iq4ks-mtp         IQ4_KS MTP + 200K + q4_0 KV (own image: ikawrakow/ik-llama-cpp)
+#     ik-llama/iq4ks-mtp-vision  IQ4_KS MTP + 160K @ 1M-px + q4_0 KV + mmproj (multimodal; 4M-px = override, lower ctx)
 #
 # Env overrides (rarely needed):
 #   COMPOSE_BIN     Default: "docker compose" (set to e.g. "podman compose" if needed)
@@ -64,84 +64,94 @@ LAUNCH_PROFILE="${LAUNCH_PROFILE:-${ROOT_DIR}/scripts/lib/profiles/launch_compat
 
 # Load .env if present, so PORT / MODEL_DIR / etc. flow through to docker
 # compose AND to the ready-URL probe below.
+#
+# Precedence matches docker compose (and launch.sh): a variable already set in
+# the shell environment WINS over the .env file — so `export MODEL_DIR=…` is no
+# longer clobbered by a stale .env entry (#425). We parse line-by-line instead
+# of `source` (a) to honour that precedence per-variable and (b) to tolerate
+# CRLF line endings from Windows editors (#187). Values are taken literally
+# (no shell expansion), matching docker compose's own .env semantics.
 if [[ -f "${ROOT_DIR}/.env" ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  source "${ROOT_DIR}/.env"
-  set +a
+  while IFS= read -r _env_line || [[ -n "$_env_line" ]]; do
+    _env_line="${_env_line#"${_env_line%%[![:space:]]*}"}"   # strip leading whitespace
+    _env_line="${_env_line%$'\r'}"                           # strip trailing CR (CRLF .env)
+    [[ -z "$_env_line" || "$_env_line" == '#'* ]] && continue
+    _env_line="${_env_line#export }"
+    _env_key="${_env_line%%=*}"
+    [[ "$_env_key" == "$_env_line" || -z "$_env_key" ]] && continue   # no '=' on the line
+    [[ -n "${!_env_key+x}" ]] && continue                    # already set in env → shell wins
+    _env_val="${_env_line#*=}"
+    _env_val="${_env_val#\"}"; _env_val="${_env_val%\"}"     # strip surrounding double quotes
+    _env_val="${_env_val#\'}"; _env_val="${_env_val%\'}"     # strip surrounding single quotes
+    export "${_env_key}=${_env_val}"
+  done < "${ROOT_DIR}/.env"
+  unset _env_line _env_key _env_val
+fi
+
+# Surface the resolved MODEL_DIR + its source so the precedence is unambiguous
+# (the exact confusion behind #425 / #187). Unset → the compose's built-in
+# default applies; preflight_compose_deps notes that case.
+if [[ -n "${MODEL_DIR:-}" ]]; then
+  echo "[switch] MODEL_DIR=${MODEL_DIR}"
 fi
 
 # Variant tables are DERIVED from the single source of truth
-# (scripts/lib/profiles/compose_registry.py COMPOSE_REGISTRY) so that every
-# registered compose is launchable and there are no launcher-only ghosts
-# (CONTRACT-2b-ii / registry↔launcher parity). The previous hardcoded
-# `declare -A` maps drifted out of the registry (e.g. vllm/dual-int8 shipped
-# in the registry + as dual/int8.yml but was unlaunchable here); deriving
-# eliminates that drift class structurally. `scripts/tests/test-switch-registry-parity.sh`
-# fails CI on ANY mismatch in either direction.
-#
-#   VARIANT_DEFAULT_PORT[<key>]  = registry default_port (matches each
-#                                  compose's "${PORT:-XXXX}:8000" fallback).
-#   VARIANTS[<key>]              = "engine|compose_dir|file" derived from the
-#                                  registry compose_path
-#                                  (<dir>/compose/<file>) + the key's engine
-#                                  prefix (vllm|llamacpp).
+# (scripts/lib/profiles/compose_registry.py COMPOSE_REGISTRY).
 declare -A VARIANT_DEFAULT_PORT=()
 declare -A VARIANTS=()
-
-_derive_variant_tables() {
-  local emit
-  if ! emit="$(python3 - "$ROOT_DIR" <<'PY' 2>/dev/null
-import sys
-from pathlib import Path
-
-root = Path(sys.argv[1])
-sys.path.insert(0, str(root))
-from scripts.lib.profiles.compose_registry import COMPOSE_REGISTRY
-
-for key, entry in COMPOSE_REGISTRY.items():
-    engine_prefix = key.split("/", 1)[0]
-    # switch.sh engine token: vllm | llamacpp (matches the on-disk tree).
-    engine = "llamacpp" if engine_prefix == "llamacpp" else engine_prefix
-    cp = entry["compose_path"]
-    if "/compose/" not in cp:
-        # A registry entry whose compose_path can't be split is a registry
-        # bug; surface it loudly rather than silently dropping the variant.
-        print(f"__ERR__\t{key}\tcompose_path lacks /compose/: {cp}")
-        continue
-    dirpart, filepart = cp.split("/compose/", 1)
-    compose_dir = f"{dirpart}/compose"
-    port = entry["default_port"]
-    print(f"{key}\t{engine}\t{compose_dir}\t{filepart}\t{port}")
-PY
-  )"; then
-    echo "[switch] ERROR: could not derive variant tables from compose_registry.py" >&2
-    echo "[switch]        (python3 + scripts/lib/profiles/compose_registry.py must be importable)" >&2
-    exit 2
-  fi
-  local key engine cdir cfile port
-  while IFS=$'\t' read -r key engine cdir cfile port; do
-    [[ -n "$key" ]] || continue
-    if [[ "$key" == "__ERR__" ]]; then
-      echo "[switch] ERROR: registry entry not launchable: ${engine} (${cdir})" >&2
-      exit 2
-    fi
-    VARIANTS["$key"]="${engine}|${cdir}|${cfile}"
-    VARIANT_DEFAULT_PORT["$key"]="$port"
-  done <<< "$emit"
-  if [[ ${#VARIANTS[@]} -eq 0 ]]; then
-    echo "[switch] ERROR: derived an empty variant table from compose_registry.py" >&2
-    exit 2
-  fi
-}
-
-_derive_variant_tables
+# shellcheck source=lib/registry-emit.sh
+source "${ROOT_DIR}/scripts/lib/registry-emit.sh"
+derive_switch_variant_tables "${ROOT_DIR}"
 
 # Container name patterns we'll bring down — covers all current composes
 # AND any vllm/llama-cpp container we don't formally know about (catches
 # locally-built variants and one-off `docker run` instances that would
 # otherwise pin GPU memory invisibly to switch.sh).
 RUNNING_PATTERN="^(vllm-|llama-cpp-)"
+
+
+PRIMARY_MODEL="${PRIMARY_MODEL:-qwen3.6-27b}"
+
+switch_topology_from_gpus() {
+  local selector="${NVIDIA_VISIBLE_DEVICES:-${CUDA_VISIBLE_DEVICES:-}}" count=0
+  if [[ -n "$selector" && "$selector" != "all" && "$selector" != "void" ]]; then
+    IFS=',' read -ra _switch_gpu_tokens <<< "$selector"
+    local token
+    for token in "${_switch_gpu_tokens[@]}"; do
+      token="${token//[[:space:]]/}"
+      [[ -n "$token" ]] && count=$((count + 1))
+    done
+  elif command -v nvidia-smi >/dev/null 2>&1; then
+    count="$(nvidia-smi --query-gpu=index --format=csv,noheader 2>/dev/null | sed '/^$/d' | wc -l | tr -d ' ')"
+  else
+    count=1
+  fi
+  case "$count" in
+    0|1) printf 'single' ;;
+    2) printf 'dual' ;;
+    4) printf 'multi4' ;;
+    *) printf 'multi%s' "$count" ;;
+  esac
+}
+
+resolve_default_variant() {
+  local variant="$1" engine topology target
+  if [[ "$variant" =~ ^([^/]+)/(single|dual|multi[0-9]+)/default$ ]]; then
+    engine="${BASH_REMATCH[1]}"
+    topology="${BASH_REMATCH[2]}"
+  elif [[ "$variant" =~ ^([^/]+)/default$ ]]; then
+    engine="${BASH_REMATCH[1]}"
+    topology="$(switch_topology_from_gpus)"
+  else
+    printf '%s' "$variant"
+    return 0
+  fi
+  if ! target="$(registry_default_target "$ROOT_DIR" "$PRIMARY_MODEL" "$engine" "$topology")"; then
+    echo "ERROR: cannot resolve default variant '${variant}' for primary model ${PRIMARY_MODEL}." >&2
+    exit 1
+  fi
+  printf '%s' "$target"
+}
 
 usage() {
   sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
@@ -399,6 +409,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n "$VARIANT" ]] || usage
+VARIANT="$(resolve_default_variant "$VARIANT")"
 
 resolve_ready_url "${VARIANT}"
 down_running
