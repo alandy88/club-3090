@@ -91,6 +91,29 @@ macros:
     --dry-allowed-length 2
     --dry-penalty-last-n -1
 
+  # ---------- Gemma-4 26B-A4B MoE MTP (atomic-llama backend) ----------
+  "gemma_mtp_engine_26b": |
+    atomic-llama-server
+    --port ${PORT}
+    --mtp-head /models/gemma-4-26B-A4B-it-assistant.Q4_K_M.gguf
+    --spec-type mtp
+    --draft-block-size 3
+    --draft-max 8
+    --draft-min 0
+    -c 156000
+    -ngl 99
+    -ngld 99
+    -fa on
+    --cache-type-k turbo3
+    --cache-type-v turbo3
+    -ctkd turbo3
+    -ctvd turbo3
+    --ctx-checkpoints 0
+    -np 1
+    --jinja
+    --reasoning on
+    --metrics
+
 models:
   # -------- Qwen3.6 vision-MoE --------
   "Qwen3.6-27B-MTP-IQ4_KS":
@@ -139,3 +162,10 @@ models:
       --dry-penalty-last-n -1
       --adaptive-target 0.6
       --adaptive-decay 0.5
+
+  # -------- Gemma-4 26B-A4B MoE MTP --------
+  "gemma-4-26B-A4B-heretic-Q4_K_M":
+    cmd: |
+      ${gemma_mtp_engine_26b}
+      -m /models/gemma-4-26B-A4B-it-ultra-uncensored-heretic-Q4_K_M.gguf
+      ${gemma_sampling_creative}
