@@ -14,16 +14,16 @@
 # =============================================================================
 
 FROM atomic-llama-cpp:server-cuda-2026-05-19 AS atomic-source
-FROM ik-llama-cpp:server-cuda-2026-05-28 AS ik-source
+FROM ik-llama-cpp:server-cuda-2026-05-28-v2 AS ik-source
 FROM beellama:server-cuda-2026-05-18 AS bee-source
 
 FROM ghcr.io/mostlygeek/llama-swap:unified-cuda-2026-05-21@sha256:0c954d3d9813369248f2245d6c29fbb6b49ac7c64052702a6ddf07f9f5d4c9b2
 
 # Overlay locally built ik-llama-server with its own libs
-COPY --from=ik-source /llama-server /opt/ik/llama-server
-COPY --from=ik-source /usr/local/lib/libggml.so /opt/ik/
-COPY --from=ik-source /usr/local/lib/libllama.so /opt/ik/
-COPY --from=ik-source /usr/local/lib/libmtmd.so /opt/ik/
+COPY --from=ik-source /app/llama-server /opt/ik/llama-server
+COPY --from=ik-source /app/lib/libggml.so /opt/ik/
+COPY --from=ik-source /app/lib/libllama.so /opt/ik/
+COPY --from=ik-source /app/lib/libmtmd.so /opt/ik/
 
 # Copy atomic fork binary + all shared libs
 COPY --from=atomic-source /app/llama-server /opt/atomic/llama-server
