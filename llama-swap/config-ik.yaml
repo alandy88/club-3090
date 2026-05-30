@@ -27,7 +27,7 @@ macros:
     -b 1024
     -ub 1024
     --cache-type-k q8_0
-    --cache-type-v q8_0
+    --cache-type-v q6_0
     -khad
     -vhad
     --cache-ram 32768
