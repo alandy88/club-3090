@@ -1,0 +1,6 @@
+# Local-only llama-swap binary overlay — fetched per-host, never committed.
+# See README "Vendoring the llama-swap binary".
+vendor-llama-swap/
+
+# Local backup from base-pin edits.
+Dockerfile.bak
