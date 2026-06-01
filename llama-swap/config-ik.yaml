@@ -25,7 +25,8 @@ macros:
     -ngl 99
     -fa on
     -b 1024
-    -ub 1024
+    -ub 512
+    -amb 512
     --cache-type-k q8_0
     --cache-type-v q6_0
     -khad
@@ -55,26 +56,67 @@ macros:
     --metrics
     --verbose-prompt
 
-  # ---------- Gemma-4 31B MTP (atomic-llama backend) ----------
-  # Engine + cache + MTP-head are identical across all 4 Gemma-4 variants.
-  # Sampling is split out so Gembrain (different sampling profile) can opt out.
-  "gemma_mtp_engine": |
-    atomic-llama-server
+  # qwen_base minus MTP/draft flags — for quants without nextn (MTP) tensors.
+  "qwen_base_nomtp": |
+    ik-llama-server
+    --chat-template-kwargs '{"preserve_thinking":true}'
     --port ${PORT}
-    --mtp-head /models/gemma-4-31B-it-assistant.Q4_K_M.gguf
-    --spec-type mtp
-    --draft-block-size 3
-    --draft-max 8
-    --draft-min 0
+    --threads 8
+    --threads-batch 8
+    --threads-mtmd 8
     -c 156000
     -ngl 99
-    -ngld 99
     -fa on
-    --cache-type-k turbo3
-    --cache-type-v turbo3
-    -ctkd turbo3
-    -ctvd turbo3
-    --ctx-checkpoints 0
+    -b 1024
+    -ub 512
+    -amb 512
+    --cache-type-k q8_0
+    --cache-type-v q6_0
+    -khad
+    -vhad
+    --cache-ram 32768
+    --cache-ram-similarity 0.50
+    --cache-ram-n-min 0
+    --merge-qkv
+    --merge-up-gate-experts
+    --ctx-checkpoints 32
+    -np 1
+    --jinja
+    --parallel-tool-calls
+    --reasoning on
+    --reasoning-format deepseek
+    --chat-template-file /models/qwen3.6-chat-template.jinja
+    --no-mmproj-offload
+    --image-min-tokens 1024
+    --image-max-tokens 4096
+    --temp 0.6
+    --top-p 0.95
+    --top-k 20
+    --min-p 0
+    --metrics
+    --verbose-prompt
+
+  # ---------- Gemma-4 31B DFlash (beellama backend) ----------
+  # Swapped from atomic-MTP -> beellama DFlash. Q8/Q5_1 KV. Shared by 31B heretic + Gembrain.
+  "gemma_bee_engine": |
+    bee-llama-server
+    --port ${PORT}
+    --spec-type dflash
+    --spec-draft-model /models/gemma4-31b-it-dflash-IQ4_XS.gguf
+    --spec-draft-ngl all
+    --spec-dflash-cross-ctx 512
+    -c 100000
+    -ngl all
+    -b 2048
+    -ub 512
+    --flash-attn on
+    --cache-type-k q5_1
+    --cache-type-v q4_0
+    --kv-unified
+    --cache-ram 0
+    --no-mmap
+    --mlock
+    --no-host
     -np 1
     --jinja
     --reasoning on
@@ -91,24 +133,27 @@ macros:
     --dry-allowed-length 2
     --dry-penalty-last-n -1
 
-  # ---------- Gemma-4 26B-A4B MoE MTP (atomic-llama backend) ----------
-  "gemma_mtp_engine_26b": |
-    atomic-llama-server
+  # ---------- Gemma-4 26B-A4B MoE DFlash (beellama backend) ----------
+  # Swapped from atomic-MTP -> beellama DFlash. Q8/Q5_1 KV. Vision via mmproj (CPU offload).
+  "gemma_bee_engine_26b": |
+    bee-llama-server
     --port ${PORT}
-    --mtp-head /models/gemma-4-26B-A4B-it-assistant.Q4_K_M.gguf
-    --spec-type mtp
-    --draft-block-size 3
-    --draft-max 8
-    --draft-min 0
+    --spec-type dflash
+    --spec-draft-model /models/gemma4-26b-a4b-it-dflash-IQ4_XS.gguf
+    --spec-draft-ngl all
+    --spec-dflash-cross-ctx 1024
     -c 156000
-    -ngl 99
-    -ngld 99
-    -fa on
-    --cache-type-k turbo3
-    --cache-type-v turbo3
-    -ctkd turbo3
-    -ctvd turbo3
-    --ctx-checkpoints 0
+    -ngl all
+    -b 2048
+    -ub 512
+    --flash-attn on
+    --cache-type-k q8_0
+    --cache-type-v q5_1
+    --kv-unified
+    --cache-ram 0
+    --no-mmap
+    --mlock
+    --no-host
     -np 1
     --jinja
     --reasoning on
@@ -116,41 +161,54 @@ macros:
 
 models:
   # -------- Qwen3.6 vision-MoE --------
-  "Qwen3.6-27B-MTP-IQ4_KS":
+  "Qwen3.6-27B":
     cmd: |
       ${qwen_base}
       -m /models/Qwen3.6-27B-MTP-IQ4_KS.gguf
       --mmproj /models/mmproj-Qwen3.6-27B-BF16.gguf
 
-  "Qwen3.6-35B-A3B-IQ4_XS":
+  # ==========================================================================
+  # Qwen3.6 35B-A3B — three quant variants, exactly ONE active.
+  # Benched 2026-06-01 (ik-llama, -c 156000, thinking off; wall tok/s narr/code):
+  #   ACTIVE heretic (no-MTP) ..... 165 / 162,  20.0 GB VRAM
+  #   shapelearn  (MTP) ........... 155 / 194,  21.2 GB  (faster code via MTP)
+  #   apex I-Compact (no-MTP) ..... 158 / 155,  18.7 GB  (smallest, most headroom)
+  # To switch: comment the ACTIVE block, uncomment an ALT and rename its id to
+  # "Qwen3.6-35B", then: make llama-swap-restart
+  # ==========================================================================
+
+  # ACTIVE — mradermacher i1-IQ4_XS uncensored heretic (no MTP tensors).
+  "Qwen3.6-35B":
     cmd: |
-      ${qwen_base}
-      -m /models/Qwen3.6-35B-A3B-IQ4_XS-4.19bpw.gguf
+      ${qwen_base_nomtp}
+      -m /models/Qwen3.6-35B-A3B-uncensored-heretic.i1-IQ4_XS.gguf
       --mmproj /models/mmproj-Qwen3.6-35B-A3B-BF16.gguf
-      -ngld 99
+
+  # ALT (inactive) — original ShapeLearn IQ4_XS, censored, native MTP speculation.
+  # "Qwen3.6-35B-shapelearn":
+  #   cmd: |
+  #     ${qwen_base}
+  #     -m /models/Qwen3.6-35B-A3B-IQ4_XS-4.19bpw.gguf
+  #     --mmproj /models/mmproj-Qwen3.6-35B-A3B-BF16.gguf
+  #     -ngld 99
+
+  # ALT (inactive) — mudler APEX I-Compact, uncensored, no MTP (smallest / most headroom).
+  # "Qwen3.6-35B-apex":
+  #   cmd: |
+  #     ${qwen_base_nomtp}
+  #     -m /models/Qwen3.6-35B-A3B-uncensored-heretic-APEX-I-Compact.gguf
+  #     --mmproj /models/mmproj-Qwen3.6-35B-A3B-BF16.gguf
 
   # -------- Gemma-4 31B MTP --------
-  "G4-MeroMero-31B-heretic-Q4_K_M":
+  "Gemma4-31B":
     cmd: |
-      ${gemma_mtp_engine}
-      -m /models/G4-MeroMero-31B-uncensored-heretic-Q4_K_M.gguf
-      ${gemma_sampling_creative}
-
-  "gemma-4-31B-it-uncensored-heretic-Q4_K_M":
-    cmd: |
-      ${gemma_mtp_engine}
+      ${gemma_bee_engine}
       -m /models/gemma-4-31B-it-uncensored-heretic-Q4_K_M.gguf
       ${gemma_sampling_creative}
 
-  "G4-Ortenzya-31B-heretic-Q4_K_M":
+  "Gemma4-31B-Gembrain":
     cmd: |
-      ${gemma_mtp_engine}
-      -m /models/gemma-4-Ortenzya-The-Creative-Wordsmith-31B-it-uncensored-heretic-Q4_K_M.gguf
-      ${gemma_sampling_creative}
-
-  "Gembrain-31B-Q4_K_M":
-    cmd: |
-      ${gemma_mtp_engine}
+      ${gemma_bee_engine}
       -m /models/Gembrain-31B-Q4_K_M.gguf
       --temp 1.0
       --top-p 0.95
@@ -164,8 +222,12 @@ models:
       --adaptive-decay 0.5
 
   # -------- Gemma-4 26B-A4B MoE MTP --------
-  "gemma-4-26B-A4B-heretic-Q4_K_M":
+  # Q5_K_M weights (~17.8 GiB) on the turbo4/156K macro. ~20 GB fit, ~4 GB headroom.
+  "Gemma4-26B":
     cmd: |
-      ${gemma_mtp_engine_26b}
-      -m /models/gemma-4-26B-A4B-it-ultra-uncensored-heretic-Q4_K_M.gguf
+      ${gemma_bee_engine_26b}
+      -m /models/gemma-4-26B-A4B-it-ultra-uncensored-heretic-Q5_K_M.gguf
+      --mmproj /models/mmproj-gemma-4-26B-A4B-BF16.gguf
+      --no-mmproj-offload
       ${gemma_sampling_creative}
+
