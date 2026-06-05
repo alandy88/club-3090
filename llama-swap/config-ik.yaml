@@ -34,9 +34,7 @@ macros:
     --cache-ram 32768
     --cache-ram-similarity 0.50
     --cache-ram-n-min 0
-    --multi-token-prediction
-    --draft-max 5
-    --draft-p-min 0.5
+    --spec-type mtp:n_max=5,p_min=0.5
     --merge-qkv
     --merge-up-gate-experts
     --ctx-checkpoints 32
