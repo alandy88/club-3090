@@ -14,7 +14,7 @@
 # =============================================================================
 
 FROM atomic-llama-cpp:server-cuda-2026-05-19 AS atomic-source
-FROM ik-llama-cpp:server-cuda-2026-05-28-v2 AS ik-source
+FROM ik-llama-cpp:server-cuda-2026-06-05 AS ik-source
 FROM beellama:server-cuda-2026-06-01 AS bee-source
 
 FROM ghcr.io/mostlygeek/llama-swap:unified-cuda-2026-05-21@sha256:0c954d3d9813369248f2245d6c29fbb6b49ac7c64052702a6ddf07f9f5d4c9b2
