@@ -229,3 +229,36 @@ models:
       --no-mmproj-offload
       ${gemma_sampling_creative}
 
+
+  # -------- Gemma-4 12B QAT (no spec-dec — no DFlash/MTP drafter published) --------
+  # UD-Q4_K_XL QAT (~6.7 GiB) on bee, plain decode. 256K ctx: --override-kv lifts the
+  # 131K n_ctx_train cap; gemma4 p-RoPE extrapolates cleanly (upstream NIAH @ 200K).
+  # Stock Gemma sampling (official model, not a heretic variant). ~9 GB fit.
+  "Gemma4-12B":
+    cmd: |
+      bee-llama-server
+      --port ${PORT}
+      -m /models/gemma-4-12B-it-qat-UD-Q4_K_XL.gguf
+      --mmproj /models/mmproj-gemma-4-12B-BF16.gguf
+      --no-mmproj-offload
+      -c 262144
+      --override-kv gemma4.context_length=int:262144
+      -ngl all
+      -b 2048
+      -ub 512
+      --flash-attn on
+      --cache-type-k q5_0
+      --cache-type-v q4_1
+      --kv-unified
+      --cache-ram 0
+      --no-mmap
+      --mlock
+      --no-host
+      -np 1
+      --jinja
+      --reasoning on
+      --metrics
+      --temp 1.0
+      --top-k 64
+      --top-p 0.95
+      --min-p 0.0
