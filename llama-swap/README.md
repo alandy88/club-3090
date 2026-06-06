@@ -1,8 +1,8 @@
 # llama-swap (lif fork)
 
 Custom [llama-swap](https://github.com/mostlygeek/llama-swap) image for
-the lif RTX 3090 box. Hot-swaps six LLMs across three llama.cpp forks
-(stock, `ik_llama.cpp`, `atomic-llama-cpp-turboquant`, `beellama.cpp`)
+the lif RTX 3090 box. Hot-swaps six LLMs across three llama.cpp engines
+(stock, `ik_llama.cpp`, `beellama.cpp`)
 behind a single OpenAI-compatible endpoint on port 8020.
 
 The image also overlays a **pinned llama-swap release binary** over the
@@ -16,8 +16,8 @@ cannot `make build` until then.
 | File | Purpose |
 |------|---------|
 | `compose.yml` | Single `llama-swap` service, GPU-pinned, port 8020 |
-| `Dockerfile` | Multi-stage build; overlays the 3 fork binaries **and a pinned llama-swap binary** onto upstream `llama-swap:unified-cuda` |
-| `config-ik.yaml` | Active config — `ik-llama-server` for Qwen3.6, `atomic-llama-server` for Gemma-4 |
+| `Dockerfile` | Multi-stage build; overlays the 2 fork binaries **and a pinned llama-swap binary** onto upstream `llama-swap:unified-cuda` |
+| `config-ik.yaml` | Active config — `ik-llama-server` for Qwen3.6, `bee-llama-server` for Gemma-4 |
 | `config-bee.yaml` | Alternate — `beellama` backend for Qwen3.6 |
 | `*-server.sh` | One-line wrappers that set `LD_LIBRARY_PATH` per fork |
 | `vendor-llama-swap/llama-swap` | **Local-only** (not committed) — official llama-swap release binary, overlaid to run a newer version than the base ships. See [Vendoring the llama-swap binary](#vendoring-the-llama-swap-binary). |
@@ -26,10 +26,9 @@ cannot `make build` until then.
 
 ## Prerequisites
 
-Three locally-built parent images (date-tagged, pinned in Dockerfile):
+Two locally-built parent images (date-tagged, pinned in Dockerfile):
 
 ```
-atomic-llama-cpp:server-cuda-YYYY-MM-DD   # from ~/Git/atomic-llama-cpp-turboquant
 ik-llama-cpp:server-cuda-YYYY-MM-DD       # from ~/Git/ik_llama.cpp
 beellama:server-cuda-YYYY-MM-DD           # from ~/Git/beellama.cpp
 ```
@@ -133,7 +132,7 @@ make up CONFIG=config-bee.yaml
 Available macros in `config-ik.yaml`:
 
 - `qwen_base` — ik-llama + preserve_thinking + threads + cache + MTP + sampling
-- `gemma_mtp_engine` — atomic-llama + MTP head + turbo3 cache (no sampling)
+- `gemma_bee_engine` / `gemma_bee_engine_26b` — bee-llama + DFlash draft + KV cache (no sampling)
 - `gemma_sampling_creative` — temp 1.0 / top-k 64 / dry 0.4 set
 
 ## Adding a backend
@@ -144,7 +143,7 @@ write a wrapper script `X-llama-server.sh`, register it in the
 
 ## Updating a pinned base image
 
-The `Dockerfile` pins all four `FROM` refs to immutable tags (local images
+The `Dockerfile` pins all three `FROM` refs to immutable tags (local images
 are date-tagged, upstream uses `@sha256:`). When a sibling repo rebuilds
 its `:server-cuda` floating tag, the date-tagged ref the Dockerfile uses
 still points at the old layer — `make build` keeps working unchanged.

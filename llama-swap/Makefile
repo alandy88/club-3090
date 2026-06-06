@@ -46,7 +46,7 @@ pins:  ## Show pinned-in-Dockerfile vs current local/remote image refs
 	@grep '^FROM' Dockerfile | sed 's/^/  /'
 	@echo
 	@echo "=== Current local IDs (floating :server-cuda tag) ==="
-	@for img in atomic-llama-cpp:server-cuda ik-llama-cpp:server-cuda beellama:server-cuda; do \
+	@for img in ik-llama-cpp:server-cuda beellama:server-cuda; do \
 		printf "  %-32s %s\n" "$$img" "$$(docker inspect --format='{{.Id}}' $$img 2>/dev/null || echo MISSING)"; \
 	done
 	@echo

@@ -1,12 +1,12 @@
 # =============================================================================
 # llama-swap — multi-model hot-swap proxy for RTX 3090
 #
-# Bundles: llama-server (stock), ik-llama-server, atomic-llama-server, bee-llama-server
+# Bundles: llama-server (stock), ik-llama-server, bee-llama-server
 # Config: selected via LLAMA_CONFIG env var (default: config-ik.yaml)
 #
 # Build:
 #   docker compose build
-# Run (ik-llama + atomic backend):
+# Run (ik-llama backend):
 #   docker compose up -d
 # Run (beellama backend):
 #   LLAMA_CONFIG=config-bee.yaml docker compose up -d
