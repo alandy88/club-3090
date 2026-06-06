@@ -12,6 +12,8 @@ schema_version: 1
 # not add new compose wiring decisions to the boolean block.
 patches:
   - id: qwen-sglang-autoround-fused-bf16
+    deprecated_on: "2026-06-05"
+    deprecation_reason: "SGLang path parked; no functional compose uses it (#254)."
     model: [qwen3.6-27b]
     files:
       - models/qwen3.6-27b/sglang/patches/patch_sglang_autoround_fused_bf16.py
@@ -33,6 +35,8 @@ patches:
     status: suspect
 
   - id: qwen-sglang-eagle3
+    deprecated_on: "2026-06-05"
+    deprecation_reason: "SGLang path parked; no functional compose uses it (#254)."
     model: [qwen3.6-27b]
     files:
       - models/qwen3.6-27b/sglang/patches/patch_sglang_eagle3.py
@@ -60,22 +64,6 @@ patches:
     load_bearing_when:
       - composes:
           - vllm/dual
-          - vllm/dual-turbo
-          - vllm/dual-dflash
-          - vllm/dual-dflash-noviz
-          - vllm/dual-bf16
-          - vllm/dual-int8
-          - vllm/dual-tq3-mtp
-          - vllm/dual-tq3-mtp-genesis
-          - vllm/dual-tq3-nomtp
-          - vllm/dual-carnice-bf16mtp
-          - vllm/dual-qwopus-bf16mtp
-          - vllm/dual-nvlink
-          - vllm/dual-nvlink-turbo
-          - vllm/dual-nvlink-dflash
-          - vllm/dual-nvlink-dflash-noviz
-          - vllm/dual4
-          - vllm/dual4-dflash
         reason: "AutoRound INT4 TP shards can fall below Marlin's output-feature tile floor."
         evidence: "models/qwen3.6-27b/vllm/patches/vllm-marlin-pad/README.md; models/qwen3.6-27b/INTERNALS.md#dual-card-the-marlin-pad-sub-tile-n-patch-vllm40361"
     delivery:               # DEPRECATED/READ-ONLY (test-only) — see header
@@ -110,29 +98,8 @@ patches:
       - models/qwen3.6-27b/vllm/patches/vllm-pr35936-required-fallback
     load_bearing_when:
       - composes:
-          - vllm/default
-          - vllm/tools-text
           - vllm/minimal
-          - vllm/long-text
-          - vllm/long-text-no-mtp
-          - vllm/long-vision
-          - vllm/bounded-thinking
           - vllm/dual
-          - vllm/dual-turbo
-          - vllm/dual-dflash
-          - vllm/dual-dflash-noviz
-          - vllm/dual-bf16
-          - vllm/dual-int8
-          - vllm/dual-tq3-mtp
-          - vllm/dual-tq3-nomtp
-          - vllm/dual-carnice-bf16mtp
-          - vllm/dual-qwopus-bf16mtp
-          - vllm/dual-nvlink
-          - vllm/dual-nvlink-turbo
-          - vllm/dual-nvlink-dflash
-          - vllm/dual-nvlink-dflash-noviz
-          - vllm/dual4
-          - vllm/dual4-dflash
         reason: "Qwen3-Coder tool_choice=required returns empty tool_calls[] unless the configured parser fallback is honored."
         evidence: "docs/UPSTREAM.md#35936 row; models/qwen3.6-27b/vllm/patches/vllm-pr35936-required-fallback/README.md"
     delivery:               # DEPRECATED/READ-ONLY (test-only) — see header
@@ -160,6 +127,8 @@ patches:
     status: verified
 
   - id: qwen-vllm-pr40798-rebased
+    deprecated_on: "2026-06-05"
+    deprecation_reason: "negative-local-result; abandoned, no functional compose uses it (#254)."
     model: [qwen3.6-27b]
     files:
       - models/qwen3.6-27b/vllm/patches/vllm-pr40798-rebased
@@ -181,6 +150,8 @@ patches:
     status: suspect
 
   - id: qwen-vllm-pr40914-k1-only
+    deprecated_on: "2026-06-05"
+    deprecation_reason: "negative-local-result; superseded, no functional compose uses it (#254)."
     model: [qwen3.6-27b]
     files:
       - models/qwen3.6-27b/vllm/patches/vllm-pr40914-k1-only
@@ -207,30 +178,8 @@ patches:
       - models/qwen3.6-27b/vllm/patches/local/qwen3coder_tool_parser_deferred_commit.py
     load_bearing_when:
       - composes:
-          - vllm/default
-          - vllm/tools-text
           - vllm/minimal
-          - vllm/long-text
-          - vllm/long-text-no-mtp
-          - vllm/long-vision
-          - vllm/bounded-thinking
           - vllm/dual
-          - vllm/dual-turbo
-          - vllm/dual-dflash
-          - vllm/dual-dflash-noviz
-          - vllm/dual-bf16
-          - vllm/dual-int8
-          - vllm/dual-tq3-mtp
-          - vllm/dual-tq3-mtp-genesis
-          - vllm/dual-tq3-nomtp
-          - vllm/dual-carnice-bf16mtp
-          - vllm/dual-qwopus-bf16mtp
-          - vllm/dual-nvlink
-          - vllm/dual-nvlink-turbo
-          - vllm/dual-nvlink-dflash
-          - vllm/dual-nvlink-dflash-noviz
-          - vllm/dual4
-          - vllm/dual4-dflash
         reason: "Qwen3-Coder streaming parser can silence SSE when prose mentions literal <tool_call>."
         evidence: "docs/UPSTREAM.md#qwen3coder-tool-parser-sse-silence-on-prose-tool_call"
     delivery:
@@ -241,19 +190,6 @@ patches:
       - composes:
           - vllm/minimal
           - vllm/dual
-          - vllm/dual-dflash
-          - vllm/dual-dflash-noviz
-          - vllm/dual-bf16
-          - vllm/dual-int8
-          - vllm/dual-tq3-mtp
-          - vllm/dual-tq3-nomtp
-          - vllm/dual-carnice-bf16mtp
-          - vllm/dual-qwopus-bf16mtp
-          - vllm/dual-nvlink
-          - vllm/dual-nvlink-dflash
-          - vllm/dual-nvlink-dflash-noviz
-          - vllm/dual4
-          - vllm/dual4-dflash
         issue: "Known current coverage boundary from club-3090#72/#145 class: these composes do not invoke the local sidecar today."
     delivery_mechanism: python_sidecar
     delivery_spec:
@@ -279,22 +215,6 @@ patches:
       - models/qwen3.6-27b/vllm/patches/vllm-pr41800-truncate-prompt-tokens
     load_bearing_when:
       - composes:
-          - vllm/default
-          - vllm/long-text
-          - vllm/long-text-no-mtp
-          - vllm/long-vision
-          - vllm/bounded-thinking
-          - vllm/dual-turbo
-          - vllm/dual-dflash
-          - vllm/dual-dflash-noviz
-          - vllm/dual-int8
-          - vllm/dual-tq3-mtp
-          - vllm/dual-tq3-mtp-genesis
-          - vllm/dual-tq3-nomtp
-          - vllm/dual-nvlink-turbo
-          - vllm/dual-nvlink-dflash
-          - vllm/dual-nvlink-dflash-noviz
-          - vllm/dual4-dflash
         reason: "Pre-d5b31c95 engine pins reject agent clients that send truncate_prompt_tokens."
         evidence: "docs/UPSTREAM.md#41800 row; models/qwen3.6-27b/vllm/patches/vllm-pr41800-truncate-prompt-tokens/README.md"
     delivery:               # DEPRECATED/READ-ONLY (test-only) — see header
@@ -327,29 +247,9 @@ patches:
       - models/qwen3.6-27b/vllm/patches/froggeric-chat-template/chat_template.jinja
     load_bearing_when:
       - composes:
-          - vllm/default
-          - vllm/tools-text
           - vllm/minimal
-          - vllm/long-text
-          - vllm/long-text-no-mtp
-          - vllm/long-vision
-          - vllm/bounded-thinking
           - vllm/dual
-          - vllm/dual-turbo
-          - vllm/dual-dflash
-          - vllm/dual-dflash-noviz
-          - vllm/dual-bf16
-          - vllm/dual-int8
-          - vllm/dual-tq3-mtp
-          - vllm/dual-tq3-mtp-genesis
-          - vllm/dual-tq3-nomtp
-          - vllm/dual-nvlink
-          - vllm/dual-nvlink-turbo
-          - vllm/dual-nvlink-dflash
-          - vllm/dual-nvlink-dflash-noviz
-          - vllm/dual4
-          - vllm/dual4-dflash
-        reason: "Default Qwen3.6 chat template mis-handles tool-call XML / reasoning delimiters / streaming (the #145 silent-break class); the froggeric override fixes 7 default-template defects and is behavior-critical for every tool/agent compose. The 4 vllm/dual-nvlink* composes inherit it via Docker Compose extends: of a froggeric-bearing base (resolved with real merge semantics, not declared lines). Carnice/Qwopus are intentional excludes (they ship their own carnice template)."
+        reason: "Default Qwen3.6 chat template mis-handles tool-call XML / reasoning delimiters / streaming (the #145 silent-break class); the froggeric override fixes 7 default-template defects and is behavior-critical for every tool/agent compose. Carnice/Qwopus are intentional excludes (they ship their own carnice template)."
         evidence: "models/qwen3.6-27b/vllm/patches/froggeric-chat-template/PROVENANCE.md; docs/UPSTREAM.md (froggeric template re-eval #150 / v19 adopted PR #157)"
     delivery:               # DEPRECATED/READ-ONLY (test-only) — see header
       dockerfile_bake: false
@@ -377,12 +277,13 @@ patches:
     status: verified
 
   - id: qwen-carnice-chat-template
+    deprecated_on: "2026-06-05"
+    deprecation_reason: "carnice fine-tune compose archived to _archive/; orphaned (#254)."
     model: [qwen3.6-27b]
     files:
       - models/qwen3.6-27b/vllm/patches/carnice-chat-template.jinja
     load_bearing_when:
       - composes:
-          - vllm/dual-carnice-bf16mtp
         reason: "The Carnice v2 INT4 Recipe-D BF16-MTP weights ship a default chat template that mis-emits tool calls; the vendored carnice .jinja makes Carnice output JSON tool calls matched to `--tool-call-parser hermes`. It is behavior-critical (the #145 silent-break class) and was previously invisible to patch-attribution (no patches.yml id / delivery_mechanism / drift_guard). Unlike froggeric it is NOT wired via `--chat-template`: it is bind-mounted OVER the model dir's chat_template.jinja and vLLM auto-loads it (wired_at: volumes only). Qwopus is NOT covered here — it ships its chat_template embedded in tokenizer_config.json, not a separate .jinja."
         evidence: "models/qwen3.6-27b/vllm/compose/dual/carnice-bf16mtp/bf16-mtp.yml volumes block + header; docs/UPSTREAM.md (carnice recipe-D)"
     delivery:               # DEPRECATED/READ-ONLY (test-only) — see header
@@ -447,39 +348,35 @@ patches:
     status: unverified
 
   - id: gemma-vllm-pr41800-truncate-prompt-tokens
+    deprecated_on: "2026-06-05"
+    deprecation_reason: "merged upstream + redundant on stock v0.22.0 (#254)."
     model: [gemma-4-31b]
     files:
       - models/gemma-4-31b/vllm/patches/vllm-pr41800-truncate-prompt-tokens
-    load_bearing_when:
-      - composes:
-          - vllm/gemma-int8
-        reason: "Pre-d5b31c95 engine pins reject agent clients that send truncate_prompt_tokens."
-        evidence: "docs/UPSTREAM.md#41800 row; models/gemma-4-31b/vllm/patches/vllm-pr41800-truncate-prompt-tokens/README.md"
+    # NOT load-bearing on gemma anymore: #41800 merged 2026-05-06 (d5b31c95) and is
+    # in stock v0.22.0 — the gemma duals moved off the pre-fix nightly to v0.22.0
+    # 2026-05-31, so the overlay was dropped from int8.yml. Verified native on
+    # v0.22.0: truncate_prompt_tokens → HTTP 200 (no 400). Kept as historical
+    # reference (delivery: none). The Qwen nightly composes track #41800 separately.
+    load_bearing_when: []
     delivery:               # DEPRECATED/READ-ONLY (test-only) — see header
       dockerfile_bake: false
-      entrypoint_invoke: true
+      entrypoint_invoke: false
       genesis: false
     delivery_gaps: []
-    delivery_mechanism: install_script
-    delivery_spec:
-      script: models/gemma-4-31b/vllm/patches/vllm-pr41800-truncate-prompt-tokens/install.sh
-      mounted_at: /etc/club3090/install-pr41800.sh
-      invoke: "bash /etc/club3090/install-pr41800.sh"
-      invoked_before: vllm-serve
-      wired_at: [volumes, entrypoint]
-    drift_guard:
-      kind: behavioral
-      check: "agent client sending truncate_prompt_tokens does not get HTTP 400 on the selected nightly (no-op if nightly post-d5b31c95)"
-      on_fail: capability-degraded
+    delivery_mechanism: none   # merged into stock v0.22.0; dropped from the gemma composes 2026-05-31
+    drift_guard: null
     capability: truncate-prompt-tokens-kwarg
     foundational: false
     upstream:
       ref: vllm-project/vllm#41800
       status: merged
-      drop_when: "each affected engine profile pins a vLLM nightly after d5b31c95"
+      drop_when: "DONE for gemma — in stock v0.22.0; entry retained as history"
     status: verified
 
   - id: gemma-vllm-gemma4-fp8-ampere
+    deprecated_on: "2026-06-05"
+    deprecation_reason: "fp8 KV is hardware-dead on Ampere sm_86; never shippable here (#254)."
     model: [gemma-4-31b]
     files:
       - models/gemma-4-31b/vllm/patches/vllm-gemma4-fp8-ampere
@@ -503,38 +400,43 @@ patches:
   - id: gemma-vllm-gemma4-tool-parser-fixes
     model: [gemma-4-31b]
     files:
-      - models/gemma-4-31b/vllm/patches/vllm-gemma4-tool-parser-fixes
+      - models/gemma-4-31b/vllm/patches/vllm-pr42006-v0.22.0
     load_bearing_when:
       - composes:
-          - vllm/gemma-int8
-        reason: "Stacks Gemma 4 tool-parser fixes for MTP streaming multi-tool calls and parser bounds."
-        evidence: "models/gemma-4-31b/vllm/patches/vllm-gemma4-tool-parser-fixes/README.md"
+          - vllm/gemma-bf16-mtp
+          - vllm/gemma-int8-mtp
+        reason: "Stock v0.22.0's streaming gemma4 tool parser drops the arguments of all-but-the-last tool call in a multi-tool streamed response (live-confirmed 2026-05-31: streaming → args lost, non-streaming → correct). #42006 fixes it. Both duals serve tool traffic → both carry it."
+        evidence: "models/gemma-4-31b/vllm/patches/vllm-pr42006-v0.22.0/README.md"
     delivery:               # DEPRECATED/READ-ONLY (test-only) — see header
       dockerfile_bake: false
       entrypoint_invoke: true
       genesis: false
     delivery_gaps: []
-    delivery_mechanism: site_package_overlay
+    # 2026-05-31: re-delivered as a single-file boot-time DIFF-APPLY (install_script)
+    # for v0.22.0. #41991 (formerly stacked here) is now in stock v0.22.0 → dropped;
+    # this carries ONLY the still-open #42006 delta (~210-line single-file diff).
+    delivery_mechanism: install_script
     delivery_spec:
-      overlay_files:
-        - src: models/gemma-4-31b/vllm/patches/vllm-gemma4-tool-parser-fixes/tool_parsers/gemma4_tool_parser.py
-          dest: /usr/local/lib/python3.12/dist-packages/vllm/tool_parsers/gemma4_tool_parser.py
-      mount_mode: ro
-      wired_at: volumes
-      note: "isolated single-file overlay (acceptable per overlay policy)"
+      script: models/gemma-4-31b/vllm/patches/vllm-pr42006-v0.22.0/install.sh
+      invoke: "boot-time: applies the #42006 single-file diff to stock v0.22.0's gemma4_tool_parser.py (idempotent; fail-loud)"
+      invoked_before: vllm-import
+      wired_at: [volumes, entrypoint]
     drift_guard:
       kind: behavioral
-      check: "Gemma 4 MTP streaming multi-tool calls parse without parser-bounds error on selected nightly"
+      check: "Gemma 4 streamed multi-tool response retains arguments on ALL calls (not just the last) on the pinned v0.22.0 image"
       on_fail: capability-degraded
     capability: tool-call-stream
     foundational: false
     upstream:
-      ref: vllm-project/vllm#42006 + vllm-project/vllm#41991
+      ref: vllm-project/vllm#42006
       status: open
-      drop_when: "both PRs merge and the selected nightly includes them"
+      drop_when: "merged into the pinned release and a streamed multi-tool response keeps all args"
     status: verified
 
+
   - id: gemma-vllm-perheadkv-hybridpage-fix
+    deprecated_on: "2026-06-05"
+    deprecation_reason: "superseded by gemma-vllm-pr40391-rebased (#254)."
     model: [gemma-4-31b]
     files:
       - models/gemma-4-31b/vllm/patches/vllm-perheadkv-hybridpage-fix
@@ -556,6 +458,8 @@ patches:
     status: suspect
 
   - id: gemma-vllm-pr40391-perheadkv
+    deprecated_on: "2026-06-05"
+    deprecation_reason: "superseded by gemma-vllm-pr40391-rebased (#254)."
     model: [gemma-4-31b]
     files:
       - models/gemma-4-31b/vllm/patches/vllm-pr40391-perheadkv
@@ -579,47 +483,47 @@ patches:
   - id: gemma-vllm-pr40391-rebased
     model: [gemma-4-31b]
     files:
-      - models/gemma-4-31b/vllm/patches/vllm-pr40391-rebased
+      - models/gemma-4-31b/vllm/patches/vllm-pr40391-v0.22.0
     load_bearing_when:
       - composes:
-          - vllm/gemma-int8
+          - vllm/gemma-int8-mtp
         reason: "Pads hybrid Gemma 4 per-token-head KV cache layout so INT8/PTH long context can boot."
-        evidence: "models/gemma-4-31b/vllm/patches/vllm-pr40391-rebased/README.md; BENCHMARKS.md#gemma-4-31b-community-experimental dual-int8.yml rows"
+        evidence: "models/gemma-4-31b/vllm/patches/vllm-pr40391-v0.22.0/README.md; BENCHMARKS.md#gemma-4-31b-community-experimental int8.yml rows"
     delivery:               # DEPRECATED/READ-ONLY (test-only) — see header
       dockerfile_bake: false
       entrypoint_invoke: true
       genesis: false
     delivery_gaps: []
-    delivery_mechanism: site_package_overlay
+    # 2026-05-31: re-delivered as a boot-time DIFF-APPLY (install_script) for the
+    # v0.21.0 → v0.22.0 pin bump, replacing the 7-file site_package_overlay (which
+    # vendored ~13K lines of v0.21.0-era vLLM source — it ImportError'd on v0.22.0
+    # because the stale full-module copies lacked v0.22.0's get_kv_cache_spec_kind).
+    # The lean form carries ONLY the ~240-line #40391 delta + the new helper file.
+    delivery_mechanism: install_script
     delivery_spec:
-      overlay_dir: models/gemma-4-31b/vllm/patches/vllm-pr40391-rebased
-      dest_root: /usr/local/lib/python3.12/dist-packages/vllm
-      file_count: 7
-      mount_mode: ro
-      wired_at: volumes
-      note: "pads hybrid Gemma 4 per-token-head KV layout; without it INT8/PTH long-context cannot boot"
+      script: models/gemma-4-31b/vllm/patches/vllm-pr40391-v0.22.0/install.sh
+      invoke: "boot-time: copies kv_cache_shape_utils.py + applies the ~240-line #40391 diff onto stock v0.22.0 (idempotent; fail-loud if the diff does not apply cleanly)"
+      invoked_before: vllm-import
+      wired_at: [volumes, entrypoint]
     drift_guard:
       kind: import-and-boot
-      check: "Gemma 4 INT8 per-token-head KV cache pages unify (get_padded_attention_kv_cache_shape present) on selected nightly"
+      check: "Gemma 4 INT8 per-token-head KV cache pages unify (get_padded_attention_kv_cache_shape present) on the pinned v0.22.0 image"
       on_fail: hard-refuse   # foundational: INT8/PTH composes will not boot without it
     capability: gemma4-int8-pth-kv
     foundational: true
     upstream:
       ref: vllm-project/vllm#40391
       status: open-rebased-local
-      drop_when: "merged into selected nightly and verified on Gemma 4 long-context stress"
+      drop_when: "merged into the pinned release and verified on Gemma 4 long-context stress"
     status: verified
 
   - id: gemma-a4b-vllm-pr40886-awq-moe-keys
+    deprecated_on: "2026-06-06"
+    deprecation_reason: "AWQ compressed-tensors MoE key remap is in stock v0.22.0; gemma-4-26b-a4b AWQ now serves overlay-free (#326). Compose mounts removed."
     model: [gemma-4-26b-a4b]
     files:
       - models/gemma-4-26b-a4b/vllm/patches/vllm-pr40886-awq-moe-keys
-    load_bearing_when:
-      - composes:
-          - vllm/gemma-a4b-awq
-          - vllm/gemma-a4b-awq-mtp
-        reason: "Remaps compressed-tensors AWQ MoE expert keys so Gemma 4 26B-A4B AWQ loads."
-        evidence: "models/gemma-4-26b-a4b/vllm/patches/vllm-pr40886-awq-moe-keys/README.md; BENCHMARKS.md#moe-models"
+    load_bearing_when: []
     delivery:               # DEPRECATED/READ-ONLY (test-only) — see header
       dockerfile_bake: false
       entrypoint_invoke: true
@@ -645,6 +549,8 @@ patches:
 
   - &genesis_env_patch
     id: genesis-p4
+    deprecated_on: "2026-06-05"
+    deprecation_reason: "Genesis env-gated patch; Genesis path retired/on-hold upstream, no live compose uses it (#254). Anchor-inherited by all genesis-p* entries."
     model: [qwen3.6-27b]
     files: []
     genesis_env: GENESIS_ENABLE_P4

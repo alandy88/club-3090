@@ -208,7 +208,7 @@ def validate_engine_pin(engine_id: str, engine: dict, arch_row: dict) -> str:
     ``image: ${VLLM_IMAGE:-...}`` expression untouched (correction #2).
     """
     spec = (engine.get("install") or {}).get("spec", "")
-    # spec looks like 'vllm/vllm-openai:nightly-<sha>' or 'vllm-stable@0.20.2'
+    # spec looks like 'vllm/vllm-openai:nightly-<sha>' or 'vllm-pip-baseline@0.20.2'
     sha = ""
     if ":" in spec and "nightly-" in spec:
         sha = spec.split("nightly-", 1)[1].strip()
@@ -911,7 +911,7 @@ def generate_from_profile(root: Path, einput) -> tuple[str, dict]:
         f"  {svc}:",
         f"    image: {image}",
         f'    container_name: "${{ESTATE_CONTAINER:-{svc}}}"',
-        '    restart: "no"',
+        "    restart: ${CLUB3090_RESTART:-unless-stopped}",
         "    ports:",
         f'      - "${{BIND_HOST:-0.0.0.0}}:${{ESTATE_PORT:-${{PORT:-{port}}}}}:8000"',
         "    volumes:",

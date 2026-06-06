@@ -1,0 +1,105 @@
+# ===========================================================================
+# Profile (at-a-glance):
+#   Model:     Gemma 4 26B-A4B MoE (cyankiwi AWQ-4bit, compressed-tensors)
+#   Topology:  Single 3090 (TP=1)
+#   Drafter:   MTP n=4 — google/gemma-4-26B-A4B-it-assistant (external, ~832 MB)
+#   KV:        bfloat16 (Ampere fp8 dead for gemma4: fp8_e5m2 hits the
+#              gemma4_mm.py allowlist assert, fp8_e4m3 hits Triton fp8e4nv)
+#   Vision:    off (limit-mm-per-prompt image=0 audio=0)
+#   Max ctx:   16K (laddered max — KV pool 17,490 tok at 0.92 util on 1x 3090
+#              with the drafter loaded; 17,408 would leave <100 tok headroom)
+#   Genesis:   N/A — Gemma 4 family is not Qwen3-Next
+#   Status:    🧪 Experimental — AWQ MoE + external MTP on stock v0.22.0 (#326)
+#   Caveats:   Boot + coherence + tool-call validated 2026-06-06 on 1x RTX 3090
+#              (Marlin WNA16 MoE, ~22 GB). Single-card max ctx is 16K (vs 262K on
+#              the dual) — weights (17 GB) + drafter leave only ~17.5K KV tokens.
+#              Promote to ⚠️ after rebench-full + soak. The AutoRound INT4-mixed
+#              sibling is Ampere-dead (uint8b128 has no sm_86 W4A16 kernel).
+# ---------------------------------------------------------------------------
+# Gemma 4 26B-A4B-it (cyankiwi AWQ-4bit) — Ampere-viable single-card MoE.
+#
+# Engine: stock vLLM v0.22.0 (vllm-stable). The compressed-tensors AWQ (pure
+# uint4) experts resolve to the Marlin WNA16 MoE backend on sm_86, unlike the
+# AutoRound int4-MIXED packing (uint8b128) which has no Ampere kernel. No
+# vendored overlay needed (PR #40886 AWQ-MoE-keys is already in v0.22.0).
+#
+# KV format pinned to bf16 (same constraint as gemma-4-31b/12b on Ampere).
+# ===========================================================================
+# Hardware metadata (parsed by scripts/preflight.sh):
+# Requires-min-vram-gb: 24
+# Engine-profile: vllm-stable
+# Requires-min-gpu-count: 1
+# Tensor-parallel: 1
+# Requires-sm: 7.5+
+services:
+  vllm-gemma-26b-a4b-awq-tp1:
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.22.0}
+    container_name: "${ESTATE_CONTAINER:-vllm-gemma-26b-a4b-awq-tp1}"
+    restart: ${CLUB3090_RESTART:-unless-stopped}
+    ports:
+      - "${ESTATE_PORT:-${PORT:-8040}}:8000"
+    volumes:
+      - ${MODEL_DIR:-../../../../../../models-cache}:/root/.cache/huggingface
+      - ../../../cache/torch_compile:/root/.cache/vllm/torch_compile_cache
+      - ../../../cache/triton:/root/.triton/cache
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=${ESTATE_GPUS:-${NVIDIA_VISIBLE_DEVICES:-all}}
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-${OFFLINE:-0}}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-${OFFLINE:-0}}
+      - VLLM_WORKER_MULTIPROC_METHOD=spawn
+      - NCCL_CUMEM_ENABLE=0
+      - NCCL_P2P_DISABLE=1
+      - VLLM_NO_USAGE_STATS=1
+      - OMP_NUM_THREADS=1
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,max_split_size_mb:512
+      - VLLM_ALLOW_LONG_MAX_MODEL_LEN=1
+      - TRITON_CACHE_DIR=/root/.triton/cache
+    shm_size: "16gb"
+    ipc: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command:
+      - --override-generation-config
+      - '{"temperature":${TEMP:-${TEMPERATURE:-1.0}},"top_p":${TOP_P:-0.95},"top_k":${TOP_K:-64},"min_p":${MIN_P:-0.0},"repetition_penalty":${REPEAT_PENALTY:-1.0}}'
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --model
+      - /root/.cache/huggingface/gemma-4-26b-a4b-awq-4bit
+      - --served-model-name
+      - gemma-4-26b-a4b-awq
+      - --tensor-parallel-size
+      - "${TP:-1}"
+      - --pipeline-parallel-size
+      - "${PP:-1}"
+      - --max-model-len
+      - "${MAX_MODEL_LEN:-16384}"
+      - --gpu-memory-utilization
+      - "${GPU_MEMORY_UTILIZATION:-0.92}"
+      - --max-num-seqs
+      - "256"
+      - --max-num-batched-tokens
+      - "4096"
+      - --limit-mm-per-prompt
+      - '{"image":0,"audio":0}'
+      - --kv-cache-dtype
+      - auto
+      - --trust-remote-code
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - gemma4
+      - --chat-template
+      - /vllm-workspace/examples/tool_chat_template_gemma4.jinja
+      - --enable-prefix-caching
+      - --enable-chunked-prefill
+      # External MTP assistant drafter — n=4 per gemma-26b-it-assistant DrafterProfile.
+      # Same external-drafter path as the dual; bypasses MoE expert routing.
+      - --speculative-config
+      - '{"model":"/root/.cache/huggingface/gemma-4-26b-a4b-it-assistant","num_speculative_tokens":4}'

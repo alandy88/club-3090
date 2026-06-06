@@ -61,6 +61,8 @@ Pin engine images only when we vendor patches into the running container. Otherw
 
 When adding the first vendored patch to a previously-rolling engine: pin in the same commit. When dropping the last patch: unpin in the same commit. Bump pins via PR with a `verify-full.sh` + `bench.sh` re-run, never silently.
 
+**Delivery model (vLLM):** patches reach the container by **volume-mounting into the pinned *stock* `vllm/vllm-openai` image** (python sidecars / site-package overlays / install scripts — see `delivery_mechanism` in `scripts/lib/profiles/patches.yml`), **not** by baking a custom image. The older baked-image path (`ghcr.io/noonghunna/vllm-club3090`, which shipped the release images through `club-v0.8.3`) is **retired** — no compose or engine-pin references it, and the `dockerfile_bake` `delivery:` block in `patches.yml` is legacy/test-only. The GHCR package is kept as historical release artifacts (users pinned to a `club-v0.8.x` tag can still pull); it is not deleted and not produced by anything in-repo.
+
 ### CHANGELOG
 - `CHANGELOG.md` (cross-cutting) and `models/<name>/CHANGELOG.md` (per-model) are **append-only history**. Don't rewrite past entries even when a finding is superseded — add a new entry. The historical trail is load-bearing for "why did we do X."
 - Old entries can reference files / patches that no longer exist. That's fine — leave them.
@@ -79,19 +81,27 @@ The directory hierarchy encodes model, engine, topology, and the weights artifac
 | `models/<model>/<engine>/` | Inference engine | `vllm` · `llama-cpp` · `sglang` |
 | `compose/<topology>/` | Hardware topology | `single` · `dual` · `multi3` · `multi4` · `multi8` |
 | `<quant>/` | Weights artifact / `weights_variant` slug | `autoround-int4` · `ubergarm-iq4ks` · `awq` |
-| `<serving>.yml` (filename) | Serving stack | `fp8-mtp.yml` · `turbo.yml` · `dflash.yml` · `nvlink-dflash-noviz.yml` |
+| `<serving>.yml` (filename) | Serving stack | `fp8-mtp.yml` · `turbo.yml` · `dflash.yml` · `int8.yml` |
 
 **Topology rule**: `single` (TP=1) and `dual` (TP=2) have no count ambiguity. `multi<N>` requires the count because N varies (3 / 4 / 5 / 6 / 8). Aligns with `docs/SINGLE_CARD.md` / `DUAL_CARD.md` / `MULTI_CARD.md` doc framing.
 
 **Default rule**: there is no filesystem default and no `default.yml`. Defaults live in `scripts/lib/profiles/compose_registry.py` (`DEFAULTS`) and are selected by registry tag (`scripts/launch.sh`, `scripts/switch.sh`, estate planner). Direct Docker use must pass `-f <path>`.
 
+**Default-resolver knobs** (maintainer-owned, next to `DEFAULTS` in `compose_registry.py`):
+- `DEFAULTS[(model, engine, topology)] → slug` — the `<engine>/default` map (club-3090's recommended config per engine; reason can evolve, edited by PR).
+- `ENGINE_PREFERENCE[topology] → [engine, …]` — the curated `<model>/default` policy. The resolver walks this list and picks the first engine with a **functional** (`status ∉ {experimental, preview, upstream-gated, deprecated}`) `DEFAULTS` entry. **Reorder a row to change a recommendation — no code change, any topology.** single = `[beellama, ik-llama, llamacpp, vllm]`; dual/multi = `[vllm, ik-llama, llamacpp, beellama]`. `beellama` is ranked but has no entries yet (blocked on upstream image → `docs/UPSTREAM.md`); the resolver skips it and it auto-promotes to single-default on catalog.
+- `RECOMMENDED_DEFAULT_MODELS` — a **short opt-in shortlist** (`["qwen3.6-27b", "gemma-4-31b"]`) of models eligible to be the *bare-`launch.sh`* default (first installed → its `<model>/default`). **NOT** an exhaustive ranking; absent models are runnable by name but never auto-default; **new models are NOT auto-added** — promote one explicitly.
+- The shared resolver `model_default_target(root, model, topology)` (in `registry-emit.sh`) is the single injection point for both launchers. Precedence: `--variant` → user `.env` pin (`CLUB3090_DEFAULT_<MODELID, non-alnum→_>`) → community seam (`community_default_target` → `None` today) → curated walk → degradation (nearest-lower topology, else "pick explicitly"). `X/default` dispatch: `X ∈ engine-set` → engine rec; `X ∈ model-set` → model default; else error. Users pin/clear via `switch.sh --set-default <slug>` / `--clear-default <model>`.
+
 **Feature suffix order** (when stacking): interconnect → drafter → KV → vision modifier. Examples:
 - `dual/autoround-int4/turbo.yml` — TP=2 + AutoRound INT4 weights + TurboQuant KV
 - `dual/autoround-int4/dflash.yml` — TP=2 + AutoRound INT4 weights + DFlash drafter
-- `dual/autoround-int4/nvlink-dflash-noviz.yml` — TP=2 + NVLink + DFlash + no vision
+- _(the `nvlink-` interconnect prefix is reserved but currently unused — NVLink is auto-detected at boot via `NVLINK_MODE`, not encoded in the filename)_
 - `dual/autoround-int4/int8.yml` — TP=2 + AutoRound INT4 weights + INT8 PTH KV
 - `dual/awq/bf16-mtp.yml` — TP=2 + AWQ weights + BF16 KV + MTP
 - `multi4/autoround-int4/dflash.yml` — TP=4 + DFlash
+
+**Plain / default cases**: a compose with the engine-**default** KV and no drafter is `base.yml` — do NOT name the default KV (no `bf16.yml` when bf16 is the default; that's `base.yml`); name only a **non-default** KV (`int8.yml`, `fp8.yml`, `tq3.yml`). **Workload-tuned** variants (use-case ctx/sampling, not a feature delta) keep a descriptive name (`long-text.yml`, `tools-text.yml`, `bounded-thinking.yml`, `minimal.yml`). Names predating this are grandfathered — don't rename (it re-paths the registry `compose_path`). Full filename + registry-slug conventions: [`docs/ADDING_MODELS.md`](docs/ADDING_MODELS.md) → "Build the first compose."
 
 Concrete examples (post-2026-05-09 restructure):
 - `models/qwen3.6-27b/vllm/compose/single/autoround-int4/tq3-mtp.yml` — Qwen single-card default
