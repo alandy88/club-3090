@@ -166,29 +166,28 @@ models:
       --mmproj /models/mmproj-Qwen3.6-27B-BF16.gguf
 
   # ==========================================================================
-  # Qwen3.6 35B-A3B — three quant variants, exactly ONE active.
+  # Qwen3.6 35B-A3B — shapelearn default + heretic served; apex kept as ALT.
   # Benched 2026-06-01 (ik-llama, -c 156000, thinking off; wall tok/s narr/code):
-  #   ACTIVE heretic (no-MTP) ..... 165 / 162,  20.0 GB VRAM
-  #   shapelearn  (MTP) ........... 155 / 194,  21.2 GB  (faster code via MTP)
+  #   DEFAULT shapelearn (MTP) .... 155 / 194,  21.2 GB  (faster code via MTP)
+  #   heretic (no-MTP) ............ 165 / 162,  20.0 GB  (uncensored)
   #   apex I-Compact (no-MTP) ..... 158 / 155,  18.7 GB  (smallest, most headroom)
-  # To switch: comment the ACTIVE block, uncomment an ALT and rename its id to
-  # "Qwen3.6-35B", then: make llama-swap-restart
   # ==========================================================================
 
-  # ACTIVE — mradermacher i1-IQ4_XS uncensored heretic (no MTP tensors).
+  # DEFAULT — original ShapeLearn (byteshape) IQ4_XS, native MTP speculation.
+  # Same quant upstream validated as best single-3090 8-pack (byteshape-iq4xs/mtp.yml).
   "Qwen3.6-35B":
+    cmd: |
+      ${qwen_base}
+      -m /models/Qwen3.6-35B-A3B-IQ4_XS-4.19bpw.gguf
+      --mmproj /models/mmproj-Qwen3.6-35B-A3B-BF16.gguf
+      -ngld 99
+
+  # mradermacher i1-IQ4_XS uncensored heretic (no MTP tensors).
+  "Qwen3.6-35B-Heretic":
     cmd: |
       ${qwen_base_nomtp}
       -m /models/Qwen3.6-35B-A3B-uncensored-heretic.i1-IQ4_XS.gguf
       --mmproj /models/mmproj-Qwen3.6-35B-A3B-BF16.gguf
-
-  # ALT (inactive) — original ShapeLearn IQ4_XS, censored, native MTP speculation.
-  # "Qwen3.6-35B-shapelearn":
-  #   cmd: |
-  #     ${qwen_base}
-  #     -m /models/Qwen3.6-35B-A3B-IQ4_XS-4.19bpw.gguf
-  #     --mmproj /models/mmproj-Qwen3.6-35B-A3B-BF16.gguf
-  #     -ngld 99
 
   # ALT (inactive) — mudler APEX I-Compact, uncensored, no MTP (smallest / most headroom).
   # "Qwen3.6-35B-apex":
