@@ -166,7 +166,7 @@ models:
       --mmproj /models/mmproj-Qwen3.6-27B-BF16.gguf
 
   # ==========================================================================
-  # Qwen3.6 35B-A3B — shapelearn default + heretic served; apex kept as ALT.
+  # Qwen3.6 35B-A3B — shapelearn default + heretic + Carnice apex served.
   # Benched 2026-06-01 (ik-llama, -c 156000, thinking off; wall tok/s narr/code):
   #   DEFAULT shapelearn (MTP) .... 155 / 194,  21.2 GB  (faster code via MTP)
   #   heretic (no-MTP) ............ 165 / 162,  20.0 GB  (uncensored)
@@ -188,6 +188,14 @@ models:
       ${qwen_base_nomtp}
       -m /models/Qwen3.6-35B-A3B-uncensored-heretic.i1-IQ4_XS.gguf
       --mmproj /models/mmproj-Qwen3.6-35B-A3B-BF16.gguf
+
+  # Carnice (mudler) APEX-MTP I-Compact — 35B-A3B merge with native MTP (~16.1 GiB).
+  "Qwen3.6-35B-Apex":
+    cmd: |
+      ${qwen_base}
+      -m /models/Carnice-Qwen3.6-MoE-35B-A3B-APEX-MTP-I-Compact.gguf
+      --mmproj /models/mmproj-Qwen3.6-35B-A3B-BF16.gguf
+      -ngld 99
 
   # ALT (inactive) — mudler APEX I-Compact, uncensored, no MTP (smallest / most headroom).
   # "Qwen3.6-35B-apex":
