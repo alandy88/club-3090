@@ -270,3 +270,38 @@ models:
       --top-k 64
       --top-p 0.95
       --min-p 0.0
+
+  # -------- ToriiGate-0.5 (bee — Qwen3.5-4B VLM, Danbooru/anime captioner) --------
+  # Single-image, single-turn captioner (Minthy/ToriiGate-0.5; DraconicDragon GGUF).
+  # Q8_0 LM (~4.9 GiB) + fp16 mmproj; qwen3_5 vision loads on the pinned bee engine
+  # (verified 2026-06-14: loads + captions). --image-min-tokens 1024 per the model's
+  # own Qwen-VL grounding warning. Not a chat/reasoning model: reasoning left off,
+  # low temp for stable captions. Bespoke cmd (qwen_base macro is Qwen3.6-MoE-tuned).
+  "ToriiGate-0.5":
+    cmd: |
+      bee-llama-server
+      --port ${PORT}
+      -m /models/ToriiGate-0.5-Q8_0.gguf
+      --mmproj /models/mmproj-ToriiGate-0.5-fp16.gguf
+      --no-mmproj-offload
+      -c 8192
+      -ngl all
+      -b 2048
+      -ub 512
+      --flash-attn on
+      --cache-type-k f16
+      --cache-type-v f16
+      --kv-unified
+      --cache-ram 0
+      --no-mmap
+      --mlock
+      --no-host
+      -np 1
+      --jinja
+      --image-min-tokens 1024
+      --image-max-tokens 4096
+      --metrics
+      --temp 0.5
+      --top-p 0.9
+      --top-k 40
+      --min-p 0.0
