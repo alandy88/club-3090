@@ -76,7 +76,7 @@
 
 services:
   ik-llama-qwen36-35b-a3b-apex-fit:
-    image: ${IK_LLAMA_IMAGE:-ghcr.io/ikawrakow/ik-llama-cpp:cu13-server}
+    image: ${IK_LLAMA_IMAGE:-ghcr.io/ikawrakow/ik-llama-cpp:cu13-server-4455}
     container_name: "${ESTATE_CONTAINER:-ik-llama-qwen36-35b-a3b-apex-fit}"
     restart: unless-stopped
     ports:

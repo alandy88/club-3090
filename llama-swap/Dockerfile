@@ -32,9 +32,9 @@ COPY ik-llama-server.sh /usr/local/bin/ik-llama-server
 COPY bee-llama-server.sh /usr/local/bin/bee-llama-server
 RUN chmod +x /usr/local/bin/ik-llama-server /usr/local/bin/bee-llama-server
 
-# Overlay official llama-swap v219 binary over the base image's v217.
+# Overlay official llama-swap v228 binary over the base image's v217.
 # Adds the new routing backend / request collation (PR #790, in v218+).
-# Source: github.com/mostlygeek/llama-swap releases/v219/llama-swap_219_linux_amd64.tar.gz
-#   sha256(tarball)=e8eb79e1b03ea6db912d4dcc9370313143e6b9a4b3850c9127de8f74b182d44e
+# Source: github.com/mostlygeek/llama-swap releases/v228/llama-swap_228_linux_amd64.tar.gz
+#   sha256(tarball)=31f325b39b046869a4c6661803deeb522587ff4895a37f697d64a10e4a484742
 # UI is embedded in the binary; revert by deleting this COPY to fall back to base v217.
 COPY vendor-llama-swap/llama-swap /usr/local/bin/llama-swap
