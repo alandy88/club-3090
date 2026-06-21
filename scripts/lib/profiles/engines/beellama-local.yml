@@ -8,7 +8,7 @@ install:
   # Single source of truth for the beellama image — switch.sh/launch.sh inject this as
   # BEELLAMA_IMAGE across all beellama composes (the per-compose ${BEELLAMA_IMAGE:-…} literal
   # is only a fallback for direct `docker compose`). Bump this ONE line to update (beellama-pin-bump).
-  spec: ghcr.io/anbeeld/beellama.cpp:server-cuda-v0.3.0-e0663be2713c
+  spec: ghcr.io/anbeeld/beellama.cpp:server-cuda-v0.3.1@sha256:633dfc2644c27e3da222b32b7e8d617c7702b5adb82690f376d19c483ea3b2b6
 min_sm: 6.0
 supported_model_families:
   - qwen3-next-hybrid
