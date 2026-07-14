@@ -227,11 +227,12 @@ models:
       --adaptive-decay 0.5
 
   # -------- Gemma-4 26B-A4B MoE MTP --------
-  # Q5_K_M weights (~17.8 GiB) on the turbo4/156K macro. ~20 GB fit, ~4 GB headroom.
+  # QAT-heretic UD-Q4_K_XL weights (~13.3 GiB; Google QAT base, near-bf16 @ 4-bit)
+  # on the DFlash/156K macro. ~4 GB smaller than the prior Q5_K_M -> more headroom.
   "Gemma4-26B":
     cmd: |
       ${gemma_bee_engine_26b}
-      -m /models/gemma-4-26B-A4B-it-ultra-uncensored-heretic-Q5_K_M.gguf
+      -m /models/gemma-4-26B-A4B-it-qat-heretic-UD-Q4_K_XL.gguf
       --mmproj /models/mmproj-gemma-4-26B-A4B-BF16.gguf
       --no-mmproj-offload
       ${gemma_sampling_creative}
