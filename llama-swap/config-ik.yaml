@@ -35,6 +35,7 @@ macros:
     --cache-ram-similarity 0.50
     --cache-ram-n-min 0
     --spec-type mtp:n_max=5,p_min=0.5
+    --spec-autotune
     --merge-qkv
     --merge-up-gate-experts
     --ctx-checkpoints 32
