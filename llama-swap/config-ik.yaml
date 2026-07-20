@@ -305,3 +305,43 @@ models:
       --top-p 0.9
       --top-k 40
       --min-p 0.0
+
+  # -------- jina-embeddings-v5-text-small-retrieval (memory embedder) --------
+  # Serves the Hermes personas' OpenViking memory store (1024-dim, 119 languages,
+  # Qwen3-0.6B-derived -> --pooling last). First-party jinaai Q8_0 GGUF (610 MiB);
+  # the pre-merged `-retrieval` task variant, so no query-side instruct prefix.
+  # Stock llama-server, not ik/bee: nothing here needs their MoE/vision work.
+  # Measured 2026-07-20: loads in 0.7 s, ~2.1 GiB VRAM at -c 8192, 24 ms warm
+  # round-trip, Recall@1 1.00 on a 24-doc zh/en/ja probe set.
+  # -b 512 is fine despite -c 8192 — causal decoder, so long inputs chunk-prefill
+  # (verified: 3520-token zh document embeds cleanly).
+  # NOTE: licence is CC BY-NC 4.0 — personal use only, see the OpenViking plan.
+  "jina-v5-small-retrieval":
+    cmd: |
+      llama-server
+      --port ${PORT}
+      -m /models/jina-v5-small-retrieval-Q8_0.gguf
+      --alias jina-v5-small-retrieval
+      --embedding
+      --pooling last
+      -ngl 99
+      -c 8192
+      -b 512
+      -ub 512
+      --metrics
+
+# =============================================================================
+# Groups — the embedder must coexist with a chat model, not swap against it.
+#   exclusive: false  -> loading it does not unload the chat model
+#   persistent: true  -> a chat model loading does not unload it
+# globalTTL still reaps it when idle; reload is ~0.7 s, so that is cheap.
+# Headroom measured 2026-07-20 on the worst case (Qwen3.6-35B, 21.2 GiB):
+# 23.7 / 24.0 GiB with both resident. Re-measure before adding a reranker.
+# =============================================================================
+groups:
+  "embeddings":
+    swap: false
+    exclusive: false
+    persistent: true
+    members:
+      - "jina-v5-small-retrieval"
