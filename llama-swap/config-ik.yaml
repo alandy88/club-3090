@@ -107,17 +107,20 @@ macros:
 
   # ---------- Gemma-4 26B-A4B MoE DFlash (beellama backend) ----------
   # Swapped from atomic-MTP -> beellama DFlash. Q8/Q5_1 KV. Vision via mmproj (CPU offload).
-  # bee v0.4.0 replaced the fork DFlash with upstream draft-dflash: the type is
-  # renamed, --spec-dflash-cross-ctx is gone, and the draft GGUF must carry
-  # upstream's `dflash` arch (the old IQ4_XS file is `dflash-draft`, kept on disk
-  # for rollback to v0.3.1). Draft now Anbeeld's Q4_K_M (267 MB vs 235 MB).
-  # Without --spec-draft-n-max the draft limit comes from dflash.block_size - 1.
+  # DO NOT migrate this to bee v0.4.x. v0.4.0 swapped the fork DFlash for
+  # upstream draft-dflash, which regresses this entry two ways on a 24 GB card:
+  # Anbeeld#98 (closed won't-fix, "use v0.3.1/v0.3.2 for the time being") — the
+  # drafter builds a full MTP context, so 102K-160K configs fit only ~27K; and
+  # ggml-org/llama.cpp#26108 (open) — draft-dflash plus --mmproj fails to read
+  # images. This entry is 156K AND has a projector, so it hits both. Bee stays
+  # pinned at v0.3.1 until upstream fixes them.
   "gemma_bee_engine_26b": |
     bee-llama-server
     --port ${PORT}
-    --spec-type draft-dflash
-    --spec-draft-model /models/gemma4-26b-a4b-it-dflash-Q4_K_M.gguf
+    --spec-type dflash
+    --spec-draft-model /models/gemma4-26b-a4b-it-dflash-IQ4_XS.gguf
     --spec-draft-ngl all
+    --spec-dflash-cross-ctx 1024
     -c 156000
     -ngl all
     -b 2048
@@ -178,8 +181,7 @@ models:
   # the gemma_bee_engine macro (removed with them). Weights stay in /models
   # (gemma-4-31B-it-uncensored-heretic-Q4_K_M.gguf, Gembrain-31B-Q4_K_M.gguf)
   # along with their gemma4-31b-it-dflash-IQ4_XS.gguf draft, so the revert is
-  # config-only — but only back to a bee v0.3.1 pin, since that draft is in the
-  # pre-v0.4.0 `dflash-draft` format.
+  # config-only.
 
   # -------- Gemma-4 26B-A4B MoE MTP --------
   # QAT-heretic UD-Q4_K_XL weights (~13.3 GiB; Google QAT base, near-bf16 @ 4-bit)
