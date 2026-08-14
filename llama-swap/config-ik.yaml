@@ -95,6 +95,54 @@ macros:
     --metrics
     --verbose-prompt
 
+  # ---------- Qwen3.8-27B dense hybrid VLM (ik-llama backend) ----------
+  # NOT a variant of qwen_base — three of that macro's flags are wrong here:
+  #   --merge-up-gate-experts ... MoE-only; Qwen3.8-27B is DENSE.
+  #   --chat-template-file ..... that file is the Qwen3.6 template. Qwen3.8 ships
+  #                              its own (Unsloth-patched) template in the GGUF,
+  #                              which --jinja uses. Do not point it elsewhere.
+  #   --ctx-checkpoints 32 ..... checkpoint reuse for hybrid/recurrent models is
+  #                              still unmerged upstream (ik PRs #1888, #1976).
+  #                              This model IS hybrid recurrent, so the flag is
+  #                              at best inert. Omitted until those land.
+  # --spec-autotune is also absent: every number below was measured at a FIXED
+  # n_max=5, and autotune was never benched on this arch.
+  #
+  # Sampling is Qwen3.8's documented THINKING-mode set (temp 1.0 / top-p 0.95 /
+  # top-k 20 / min-p 0), not qwen_base's 0.6 — 3.8 raised the thinking temp.
+  "qwen38_base": |
+    ik-llama-server
+    --chat-template-kwargs '{"preserve_thinking":true}'
+    --port ${PORT}
+    --threads 8
+    --threads-batch 8
+    --threads-mtmd 8
+    --mmproj /models/mmproj-Qwen3.8-27B-BF16.gguf
+    --no-mmproj-offload
+    -ngl 99
+    -fa on
+    -b 1024
+    -ub 512
+    -amb 512
+    --cache-type-k q8_0
+    --cache-type-v q6_0
+    -khad
+    -vhad
+    --merge-qkv
+    --spec-type mtp:n_max=5,p_min=0.5
+    -np 1
+    --jinja
+    --parallel-tool-calls
+    --reasoning on
+    --reasoning-format deepseek
+    --image-min-tokens 1024
+    --image-max-tokens 4096
+    --temp 1.0
+    --top-p 0.95
+    --top-k 20
+    --min-p 0
+    --metrics
+
   # Sampling used by the "creative" Gemma-4 heretic variants.
   "gemma_sampling_creative": |
     --temp 1.0
@@ -176,6 +224,77 @@ models:
   #     ${qwen_base_nomtp}
   #     -m /models/Qwen3.6-35B-A3B-uncensored-heretic-APEX-I-Compact.gguf
   #     --mmproj /models/mmproj-Qwen3.6-35B-A3B-BF16.gguf
+
+  # ==========================================================================
+  # Qwen3.8-27B — dense hybrid-attention VLM, arch `qwen35`, native 262144 ctx.
+  #
+  # ARCHITECTURE, and why KV is cheap: 64 layers laid out as
+  # 16 x (3 x Gated-DeltaNet -> 1 x Gated-Attention). Only the 16 gated-attention
+  # layers hold a KV cache; the DeltaNet layers carry a constant-size recurrent
+  # state. MEASURED KV cost at q8_0/q6_0 is 33.75 KiB/token (from the 65K->131K
+  # VRAM delta, 2160 MiB / 65536 tok), and ik's own log quotes 8309.63 MiB for a
+  # full 262144 cache. That is what makes 131K affordable on a 24 GB card.
+  #
+  # BACKEND: ik, not stock. All three engines register `qwen35` + `qwen35_mtp`
+  # (verified by symbol grep inside the deployed container's libllama.so), so
+  # this is CONFIG-ONLY — engines.lock.yaml is untouched. ik was chosen on
+  # measurement, not preference: at 32K on identical weights it beat stock on
+  # every axis — 49.6 vs 47.0 tok/s decode, 0.551 vs 0.373 MTP acceptance, and
+  # 318-536 vs 180 tok/s cold prefill.
+  #
+  # MTP: the Unsloth GGUFs ship nextn tensors (blk.64.nextn.*). They are INERT
+  # unless a --spec-type is passed; stock logs them as "unused tensor ... ignoring".
+  # n_max=5 matches the qwen_base seed and was the benched depth. NOTE the stock
+  # engine behaves oppositely on depth (there, n_max 5 and 8 were both SLOWER
+  # than no MTP at all; only n_max=3 helped) — do not port depths across engines.
+  #
+  # Measured 2026-08-15 on-box, throwaway container on port 8021, greedy, 3 runs
+  # each, run-to-run spread <1%. VRAM is MODEL-ONLY (nvidia-smi total minus the
+  # idle baseline) plus a 2115 MiB allowance for the persistent embedder — raw
+  # totals are NOT comparable between runs, because globalTTL reaps the embedder
+  # and the baseline swings 607 <-> 2722 MiB. Normalised this way every row
+  # agrees on 33.75 KiB/token of KV, which is the cross-check.
+  #   IQ4_XS   @ 65K ... 62.1 tok/s, accept 0.667, 18728 +emb 21450 (3126 free)
+  #   IQ4_XS   @131K ... 61.6 tok/s, accept 0.667, 20888 +emb 23610 ( 966 free)
+  #   Q4_K_M   @ 32K ... 48.8 tok/s, accept 0.563, 18988 +emb 21103 (3473 free)
+  #   Q4_K_M   @ 65K ... 48.2 tok/s, accept 0.563, 20067 +emb 22182 (2394 free)
+  #   Q4_K_M   @131K ... 48.1 tok/s, accept 0.563, 22227 +emb 24342 ( 234 free)
+  #   UD-Q4_K_XL@32K ... 49.6 tok/s, accept 0.551, 19728 +emb 22450 (2126 free)
+  #   UD-Q4_K_XL@65K ... 49.4 tok/s, accept 0.551, 20808 +emb 23530 (1046 free)
+  #   UD-Q4_K_XL@131K .. OOM
+  # Decode is FLAT across context, so context costs only VRAM, never speed.
+  #
+  # WHY IQ4_XS IS THE DEFAULT DESPITE BEING THE SMALLER QUANT: it is 26% faster
+  # than UD-Q4_K_XL and reaches 131K where UD-Q4_K_XL dies at 65K. Two effects
+  # compound — 2.2 GB less weight traffic per token, and a materially better MTP
+  # acceptance (0.667 vs 0.551). UNMEASURED: the quality cost. Unsloth publishes
+  # no KLD table for this repo, so the speed case is solid and the accuracy
+  # trade is assumed, not verified. UD-Q4_K_XL stays on disk for that reason.
+  # ==========================================================================
+
+  # DEFAULT — long-context / agentic. 131072 is HALF the native 262144; the full
+  # window needs 8309 MiB of KV and OOMs (verified: "Memory required 24318 MiB /
+  # available 22131 MiB"). At 131K only ~966 MiB is spare with the embedder
+  # resident, so this entry does NOT co-reside with a second chat model.
+  "Qwen3.8-27B":
+    cmd: |
+      ${qwen38_base}
+      -m /models/Qwen3.8-27B-IQ4_XS.gguf
+      -c 131072
+
+  # One-off prompts. Q4_K_M trades ~13 tok/s for 3473 MiB of headroom, which is
+  # what makes it the safe entry to hit when something else may want the card.
+  # Q4_K_M DOES run at 131072 (measured, 48.1 tok/s) but that leaves only ~234 MiB
+  # once the embedder is resident, so it is capped here instead. Its practical
+  # ceiling alongside the embedder is ~98304 (~1.3 GB spare) if this ever needs
+  # to grow.
+  # -c IS REQUIRED: omitting it does not give a small default, it gives the
+  # model's native 262144 and the server exits at load (see above).
+  "Qwen3.8-27B-Q4KM":
+    cmd: |
+      ${qwen38_base}
+      -m /models/Qwen3.8-27B-Q4_K_M.gguf
+      -c 32768
 
   # RETIRED — Gemma4-31B (uncensored-heretic) and Gemma4-31B-Gembrain, both on
   # the gemma_bee_engine macro (removed with them). Weights stay in /models
@@ -374,10 +493,23 @@ models:
   # Qwen3-0.6B-derived -> --pooling last). First-party jinaai Q8_0 GGUF (610 MiB);
   # the pre-merged `-retrieval` task variant, so no query-side instruct prefix.
   # Stock llama-server, not ik/bee: nothing here needs their MoE/vision work.
-  # Measured 2026-07-20: loads in 0.7 s, ~2.1 GiB VRAM at -c 8192, 24 ms warm
-  # round-trip, Recall@1 1.00 on a 24-doc zh/en/ja probe set.
-  # -b 512 is fine despite -c 8192 — causal decoder, so long inputs chunk-prefill
-  # (verified: 3520-token zh document embeds cleanly).
+  # Measured 2026-07-20: loads in 0.7 s, 24 ms warm round-trip, Recall@1 1.00 on
+  # a 24-doc zh/en/ja probe set.
+  # -b 512 is fine despite the context — causal decoder, so long inputs
+  # chunk-prefill (verified: 3520-token zh document embeds cleanly).
+  #
+  # -c 4096, NOT 8192: context dominates this entry's footprint. Measured
+  # 2026-08-15 (model-only, same weights, stock engine):
+  #   -c 8192 -> 2110 MiB | -c 4096 -> 1658 MiB | -c 2048 -> 1432 MiB
+  #   -c  512 -> 1262 MiB (the floor; ~610 MiB of that is weights)
+  # 4096 recovers 452 MiB and still clears the verified 3520-token document.
+  # 2048 would truncate it, which is why the ladder stops here.
+  #
+  # STAYS ON STOCK. Benched on ik 2026-08-15 and it is 10 MiB WORSE at the same
+  # context (2119 vs 2109), with identical 1024-dim output and 33 ms latency —
+  # none of ik's MoE/vision/quantized-KV/MTP work applies to a 0.6B dense
+  # causal model. Moving it would widen ik's blast radius to the memory backend
+  # for no gain.
   # NOTE: licence is CC BY-NC 4.0 — personal use only, see the OpenViking plan.
   "jina-v5-small-retrieval":
     cmd: |
@@ -388,7 +520,7 @@ models:
       --embedding
       --pooling last
       -ngl 99
-      -c 8192
+      -c 4096
       -b 512
       -ub 512
       --metrics
