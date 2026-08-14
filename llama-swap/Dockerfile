@@ -12,7 +12,7 @@
 #     digest, so a tag-rewrite by upstream would fail-loud.
 # =============================================================================
 
-FROM ik-llama-cpp:server-cuda-2026-07-21-9d07d86 AS ik-source
+FROM ik-llama-cpp:server-cuda-2026-08-14-43afea4 AS ik-source
 FROM beellama:server-cuda-2026-06-06 AS bee-source
 
 FROM ghcr.io/mostlygeek/llama-swap:unified-cuda-2026-08-13@sha256:6939af87bbf6ee5a9410eb64f78002f8d583c3379fed11807c9f3f1a2d09e028
