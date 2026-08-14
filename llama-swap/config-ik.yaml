@@ -283,6 +283,15 @@ models:
   # (20244 vs 19196). Its mean accepted run was marginally longer (5.48 vs 5.35) but
   # that did not convert into speed. Higher drafter precision is not the bottleneck.
   #
+  # NO --cache-ram HERE, deliberately — the 8192 MiB default applies. The entry
+  # originally copied --cache-ram 0 from the bee anchor, which disabled the host
+  # prompt cache outright (and with it --cache-idle-slots, which requires it).
+  # With -np 1 the single slot is overwritten by every new conversation, so with
+  # no RAM cache a returning conversation could never be restored and always paid
+  # a full reprocess. In-slot LCP reuse was never broken (an exact repeat evaluates
+  # 1 token); the RAM cache is what covers the gap ACROSS conversations. It is host
+  # memory, not VRAM, so the 24 GB budget above is unaffected.
+  #
   # Known wart: load logs warn "special_eot_id is not in special_eog_ids - the
   # tokenizer config may be incorrect". No misbehaviour observed across all probes
   # (generation terminated correctly every time), but watch for runaway output.
@@ -307,7 +316,6 @@ models:
       --cache-type-k f16
       --cache-type-v f16
       --kv-unified
-      --cache-ram 0
       --no-mmap
       --mlock
       --no-host
