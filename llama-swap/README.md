@@ -132,7 +132,7 @@ make up CONFIG=config-bee.yaml
 Available macros in `config-ik.yaml`:
 
 - `qwen_base` — ik-llama + preserve_thinking + threads + cache + MTP + sampling
-- `gemma_bee_engine` / `gemma_bee_engine_26b` — bee-llama + DFlash draft + KV cache (no sampling)
+- `gemma_bee_engine_26b` — bee-llama + DFlash draft + KV cache (no sampling)
 - `gemma_sampling_creative` — temp 1.0 / top-k 64 / dry 0.4 set
 
 ## Adding a backend

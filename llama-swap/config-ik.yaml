@@ -1,5 +1,5 @@
 # =============================================================================
-# llama-swap config — 6 models, single RTX 3090 (24 GB), hot-swap on demand
+# llama-swap config — 7 models, single RTX 3090 (24 GB), hot-swap on demand
 #
 # Shared flag sets live in `macros:` and are spliced into each model's `cmd`
 # via ${macro_name}. llama-swap shlex-parses the result, so whitespace
@@ -95,34 +95,7 @@ macros:
     --metrics
     --verbose-prompt
 
-  # ---------- Gemma-4 31B DFlash (beellama backend) ----------
-  # Swapped from atomic-MTP -> beellama DFlash. Q8/Q5_1 KV. Shared by 31B heretic + Gembrain.
-  "gemma_bee_engine": |
-    bee-llama-server
-    --port ${PORT}
-    --spec-type dflash
-    --spec-draft-model /models/gemma4-31b-it-dflash-IQ4_XS.gguf
-    --spec-draft-ngl all
-    --spec-dflash-cross-ctx 512
-    -c 100000
-    -ngl all
-    -b 2048
-    -ub 512
-    --flash-attn on
-    --cache-type-k q5_1
-    --cache-type-v q4_0
-    --kv-unified
-    --cache-ram 0
-    --no-mmap
-    --mlock
-    --no-host
-    -np 1
-    --jinja
-    --reasoning on
-    --metrics
-
-  # Sampling used by the 3 "creative" Gemma-4 heretic variants.
-  # Gembrain ships its own (top-k 0 / min-p / adaptive).
+  # Sampling used by the "creative" Gemma-4 heretic variants.
   "gemma_sampling_creative": |
     --temp 1.0
     --top-p 0.95
@@ -134,13 +107,17 @@ macros:
 
   # ---------- Gemma-4 26B-A4B MoE DFlash (beellama backend) ----------
   # Swapped from atomic-MTP -> beellama DFlash. Q8/Q5_1 KV. Vision via mmproj (CPU offload).
+  # bee v0.4.0 replaced the fork DFlash with upstream draft-dflash: the type is
+  # renamed, --spec-dflash-cross-ctx is gone, and the draft GGUF must carry
+  # upstream's `dflash` arch (the old IQ4_XS file is `dflash-draft`, kept on disk
+  # for rollback to v0.3.1). Draft now Anbeeld's Q4_K_M (267 MB vs 235 MB).
+  # Without --spec-draft-n-max the draft limit comes from dflash.block_size - 1.
   "gemma_bee_engine_26b": |
     bee-llama-server
     --port ${PORT}
-    --spec-type dflash
-    --spec-draft-model /models/gemma4-26b-a4b-it-dflash-IQ4_XS.gguf
+    --spec-type draft-dflash
+    --spec-draft-model /models/gemma4-26b-a4b-it-dflash-Q4_K_M.gguf
     --spec-draft-ngl all
-    --spec-dflash-cross-ctx 1024
     -c 156000
     -ngl all
     -b 2048
@@ -197,27 +174,12 @@ models:
   #     -m /models/Qwen3.6-35B-A3B-uncensored-heretic-APEX-I-Compact.gguf
   #     --mmproj /models/mmproj-Qwen3.6-35B-A3B-BF16.gguf
 
-  # -------- Gemma-4 31B MTP --------
-  "Gemma4-31B":
-    cmd: |
-      ${gemma_bee_engine}
-      -m /models/gemma-4-31B-it-uncensored-heretic-Q4_K_M.gguf
-      ${gemma_sampling_creative}
-
-  "Gemma4-31B-Gembrain":
-    cmd: |
-      ${gemma_bee_engine}
-      -m /models/Gembrain-31B-Q4_K_M.gguf
-      --temp 1.0
-      --top-p 0.95
-      --top-k 0
-      --min-p 0.03
-      --dry-multiplier 0.8
-      --dry-base 1.75
-      --dry-allowed-length 10
-      --dry-penalty-last-n -1
-      --adaptive-target 0.6
-      --adaptive-decay 0.5
+  # RETIRED — Gemma4-31B (uncensored-heretic) and Gemma4-31B-Gembrain, both on
+  # the gemma_bee_engine macro (removed with them). Weights stay in /models
+  # (gemma-4-31B-it-uncensored-heretic-Q4_K_M.gguf, Gembrain-31B-Q4_K_M.gguf)
+  # along with their gemma4-31b-it-dflash-IQ4_XS.gguf draft, so the revert is
+  # config-only — but only back to a bee v0.3.1 pin, since that draft is in the
+  # pre-v0.4.0 `dflash-draft` format.
 
   # -------- Gemma-4 26B-A4B MoE MTP --------
   # QAT-heretic UD-Q4_K_XL weights (~13.3 GiB; Google QAT base, near-bf16 @ 4-bit)
@@ -265,15 +227,20 @@ models:
       --top-p 0.95
       --min-p 0.0
 
-  # -------- ToriiGate-0.5 (bee — Qwen3.5-4B VLM, Danbooru/anime captioner) --------
+  # -------- ToriiGate-0.5 (stock — Qwen3.5-4B VLM, Danbooru/anime captioner) --------
   # Single-image, single-turn captioner (Minthy/ToriiGate-0.5; DraconicDragon GGUF).
-  # Q8_0 LM (~4.9 GiB) + fp16 mmproj; qwen3_5 vision loads on the pinned bee engine
-  # (verified 2026-06-14: loads + captions). --image-min-tokens 1024 per the model's
+  # Q8_0 LM (~4.9 GiB) + fp16 mmproj. --image-min-tokens 1024 per the model's
   # own Qwen-VL grounding warning. Not a chat/reasoning model: reasoning left off,
   # low temp for stable captions. Bespoke cmd (qwen_base macro is Qwen3.6-MoE-tuned).
+  #
+  # Moved bee -> stock llama-server: nothing here needs bee's DFlash work, and
+  # this keeps bee's surface to the two Gemma entries. Verified against the base
+  # image's binary (upstream 7ea23ddf, 2026-05-21): LM arch `qwen35` and
+  # projector `qwen3vl_merger` are both registered, and every flag below parses,
+  # `-ngl all` included.
   "ToriiGate-0.5":
     cmd: |
-      bee-llama-server
+      llama-server
       --port ${PORT}
       -m /models/ToriiGate-0.5-Q8_0.gguf
       --mmproj /models/mmproj-ToriiGate-0.5-fp16.gguf
