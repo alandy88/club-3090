@@ -229,6 +229,98 @@ models:
       --top-p 0.95
       --min-p 0.0
 
+  # -------- Muse Glimmer 30B (stock — dense 30B VLM, agentic/long-context) --------
+  # Dense 27.86B, 52 layers, GQA 32:2, head_dim 128, RoPE theta 500k, vision via a
+  # ~1.8B ViT. Stock llama-server, not ik/bee: upstream added muse-glimmer at b10353
+  # and the deployed base carries 1f368f3, so this is config-only — no engine bump.
+  #
+  # HYBRID ATTENTION is why 131K KV is affordable at f16. GGUF metadata gives
+  # sliding_window=2048 and sliding_window_pattern=4, i.e. [L,L,L,G] -> 13 global +
+  # 39 SWA layers of 52. Only the 13 global layers scale with context: 13*2*128*2*2
+  # = 13312 B/token, so 131072 ctx = 1.63 GiB, plus ~78 MiB for the capped SWA
+  # layers. DO NOT ADD --swa-full: it lifts the 2048 cap on all 39 SWA layers and
+  # makes KV ~8.6x larger. f16 KV per house convention for stock entries; q6_0 is an
+  # ik-only cache type and stock rejects it outright ("Unsupported cache type").
+  #
+  # -c 131072 is EXACTLY the model's native context_length from GGUF metadata, so no
+  # --override-kv is needed (verified: n_ctx_slot = 131072, no cap warning). Do not
+  # raise to 262144 the way Gemma4-12B does — that entry's override is justified by
+  # upstream p-RoPE NIAH validation at 200K, and Glimmer has no equivalent evidence;
+  # it would be 2x extrapolation past trained length on faith.
+  #
+  # DFlash speculation, NOT MTP — this model ships no MTP tensors. --spec-draft-n-max
+  # 15 sits at the drafter's block_size=16 ceiling and is the measured optimum, which
+  # inverts the usual reading: acceptance RATE falls as n_max rises, but throughput
+  # follows mean accepted RUN LENGTH. Measured 2026-08-14 (greedy, identical prompt,
+  # 3 runs each): n_max off 48.8 tok/s; n_max 3 -> 59.8 (accept 0.59, len 2.77);
+  # n_max 7 -> 54.8-56.3 (accept 0.47, len 4.3); n_max 15 -> 123-133 (accept
+  # 0.29-0.33, len 5.35-5.88). 15 is ~2.4x faster than 7 despite half the acceptance.
+  #
+  # VISION AND DFLASH COEXIST HERE. llama.cpp #26108 (draft-dflash + --mmproj breaks
+  # image reads) is the bug pinning Gemma4-26B to bee v0.3.1, but it does NOT
+  # reproduce on this path: with DFlash active at n_max 15, solid red/blue/green
+  # probes returned "red"/"blue"/"green" 3/3. Tool calls also verified — the PEG
+  # parser returned finish_reason=tool_calls with clean arguments.
+  #
+  # REASONING DEPTH IS A SYSTEM-PROMPT FIELD, not a CLI flag: send
+  # "Reasoning strength: low|medium|high|xhigh" in the system message. This is why
+  # there is no --reasoning here despite the Qwen entries carrying one.
+  # --reasoning-preserve keeps the trace across turns (template-gated).
+  #
+  # Weights are the AaryanK imatrix line (AK-Q4_K_XL, 16.26 GB, 4.669 bpw), not
+  # Unsloth's UD-Q4_K_XL (15.88 GB, 4.560 bpw). AK publishes KLD tables Unsloth does
+  # not: 0.012286 vs 0.014714 mean KLD (-16.5%) and 95.65% vs 95.25% top-1. Measured
+  # cost of that trade on-box: ~5% decode (123-130 vs 126-134 tok/s) and +360 MiB.
+  # NOTE the AK- prefix means custom per-tensor allocation — AK-Q4_K_M is NOT a stock
+  # Q4_K_M, so cross-line quant comparisons by name are meaningless.
+  #
+  # Measured VRAM: 19196 MiB for this entry (weights + mmproj + drafter + f16 KV +
+  # compute). With the persistent embedder (~2110 MiB) that is ~21.3 GB of 24.
+  #
+  # SETTLED: the AaryanK drafter (dflash-Muse-Glimmer-30B-assistant-Q8_0.gguf, 2.73 GB)
+  # was benched against the 1.63 GB Unsloth kquant drafter below and REJECTED. Same
+  # throughput within noise (122.1-126.9 vs 123.5-130.2 tok/s) for +1048 MiB VRAM
+  # (20244 vs 19196). Its mean accepted run was marginally longer (5.48 vs 5.35) but
+  # that did not convert into speed. Higher drafter precision is not the bottleneck.
+  #
+  # Known wart: load logs warn "special_eot_id is not in special_eog_ids - the
+  # tokenizer config may be incorrect". No misbehaviour observed across all probes
+  # (generation terminated correctly every time), but watch for runaway output.
+  "Muse-Glimmer-30B":
+    cmd: |
+      llama-server
+      --port ${PORT}
+      -m /models/Muse-Glimmer-30B-AK-Q4_K_XL.gguf
+      --mmproj /models/mmproj-kquant.gguf
+      --spec-type draft-dflash
+      --spec-draft-model /models/dflash-kquant.gguf
+      --spec-draft-ngl 99
+      --spec-draft-n-max 15
+      -c 131072
+      -ngl 99
+      -fit off
+      --threads 8
+      --threads-batch 8
+      -b 2048
+      -ub 512
+      --flash-attn on
+      --cache-type-k f16
+      --cache-type-v f16
+      --kv-unified
+      --cache-ram 0
+      --no-mmap
+      --mlock
+      --no-host
+      -np 1
+      --jinja
+      --reasoning-preserve
+      --no-mmproj-offload
+      --temp 1.0
+      --top-p 0.95
+      --top-k 64
+      --min-p 0
+      --metrics
+
   # -------- ToriiGate-0.5 (stock — Qwen3.5-4B VLM, Danbooru/anime captioner) --------
   # Single-image, single-turn captioner (Minthy/ToriiGate-0.5; DraconicDragon GGUF).
   # Q8_0 LM (~4.9 GiB) + fp16 mmproj. --image-min-tokens 1024 per the model's
