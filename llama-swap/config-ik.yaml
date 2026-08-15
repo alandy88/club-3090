@@ -247,12 +247,10 @@ macros:
     --metrics
 
 models:
-  # -------- Qwen3.6 vision-MoE --------
-  "Qwen3.6-27B":
-    cmd: |
-      ${qwen_base}
-      -m /models/Qwen3.6-27B-MTP-IQ4_KS.gguf
-      --mmproj /models/mmproj-Qwen3.6-27B-BF16.gguf
+  # RETIRED — Qwen3.6-27B (Qwen3.6-27B-MTP-IQ4_KS.gguf + mmproj-Qwen3.6-27B-BF16.gguf),
+  # superseded by Qwen3.8-27B. It was also the one ik entry that could not
+  # co-reside with the persistent embedder, which is why the old load-probe gate
+  # OOMed on it.
 
   # ==========================================================================
   # Qwen3.6 35B-A3B — shapelearn default + heretic served.
@@ -343,6 +341,9 @@ models:
   # available 22131 MiB"). At 131K only ~1423 MiB is spare as deployed, so this
   # entry does NOT co-reside with a second chat model.
   "Qwen3.8-27B":
+    # 30 min, not globalTTL 300 — a re-prefill of this window is expensive, and
+    # the in-process prompt cache dies with the server.
+    ttl: 1800
     cmd: |
       ${qwen38_base}
       -m /models/Qwen3.8-27B-IQ4_XS.gguf
