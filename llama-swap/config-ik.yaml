@@ -101,12 +101,13 @@ macros:
   #   --chat-template-file ..... that file is the Qwen3.6 template. Qwen3.8 ships
   #                              its own (Unsloth-patched) template in the GGUF,
   #                              which --jinja uses. Do not point it elsewhere.
-  #   --ctx-checkpoints 32 ..... checkpoint reuse for hybrid/recurrent models is
-  #                              still unmerged upstream (ik PRs #1888, #1976).
-  #                              This model IS hybrid recurrent, so the flag is
-  #                              at best inert. NOTE it is inert, not off — 32 is
-  #                              the engine default, so omitting it disables
-  #                              nothing. See the cache note below.
+  #   --ctx-checkpoints 32 ..... left unset, but NOT disabled: 32 is the engine
+  #                              default, so omitting it changes nothing. It is
+  #                              also NOT inert — checkpoint restore is measured
+  #                              working on this model (see the cache note
+  #                              below). An earlier revision claimed ik #1888 /
+  #                              #1976 made it inert on hybrid recurrent archs;
+  #                              that was wrong.
   # --spec-autotune is also absent: every number below was measured at a FIXED
   # n_max=5, and autotune was never benched on this arch.
   #
@@ -132,25 +133,42 @@ macros:
   # rather than merge with this server default, which is untested:
   #   "chat_template_kwargs":{"preserve_thinking":true,"reasoning_effort":"xhigh"}
   #
-  # --cache-ram 32768 matches qwen_base and replaces the 8192 default, which was
-  # thrashing: measured entries of 3307 and 7831 MiB, i.e. two prompts filled the
-  # cache and the log showed "cache size limit reached, removing oldest entry".
+  # --cache-ram 32768 matches qwen_base and replaces the 8192 engine default.
+  # THE PROMPT CACHE DOES NOT WORK ON THIS MODEL BELOW ~16 GiB. Sizing, not the
+  # architecture, is the whole story — measured on the box 2026-08-15:
+  #
+  #   ONE CONTEXT CHECKPOINT COSTS ~149.6 MiB HERE, and the engine keeps up to
+  #   --ctx-checkpoints (default 32) of them PER SLOT. That is ~4.8 GiB of
+  #   checkpoints for a single conversation, on top of the prompt-cache entry
+  #   itself (measured entries of 3307 and 7831 MiB). At the 8192 default one
+  #   working set did not fit, so every save evicted the previous entry before it
+  #   could ever be restored: "cache size limit reached, removing oldest entry"
+  #   on nearly every request, and 24 h of real traffic in which no cache load
+  #   reused more than 7 tokens.
+  #
+  # Same prompt sent twice back to back, 1011 prompt tokens:
+  #   --cache-ram 8192 .... cached_tokens 0,    then 0     <- thrash
+  #   --cache-ram 32768 ... cached_tokens 0,    then 1006  <- restores
+  # The restore is real and logged: "restored context checkpoint took 13.06 ms
+  # (n_tokens = 1006, size = 149.635 MiB)".
+  #
+  # DO NOT let the scary log lines talk you out of this. The server still prints
+  # "ctx_shift is not supported by recurrent model, it will be disabled" at load,
+  # and "forcing full prompt re-processing due to lack of cache data (likely due
+  # to SWA...)" per request. The first is true but only concerns context SHIFT.
+  # The second appears on any genuine prefix miss, names SWA on a model that
+  # reports n_swa = 0, and is NOT evidence that caching is broken — checkpoint
+  # restore works, as the numbers above show. An earlier revision of this comment
+  # read those lines as proof that ik #1888 / #1976 blocked caching entirely on
+  # this arch. That was wrong; the cause was eviction.
+  #
   # --cache-ram-similarity / --cache-ram-n-min are left off; qwen_base's values
   # (0.50 / 0) are already the engine defaults.
   #
-  # THIS DOES NOT MAKE THE PROMPT CACHE WORK. Qwen3.8 is recurrent, and ik cannot
-  # save or restore recurrent layer state, so every request re-prefills from
-  # token 0. At load: "ctx_shift is not supported by recurrent model, it will be
-  # disabled"; per request: "slot apply_checkp: forcing full prompt
-  # re-processing due to lack of cache data (likely due to SWA...)". That
-  # message blames SWA but this model reports n_swa = 0 — the recurrent state is
-  # the real cause. Measured 2026-08-15: the SAME prompt sent twice back to back
-  # returned cached_tokens 0 both times (1011 prompt tokens each). Over 24 h of
-  # real traffic no cache load reused more than 7 tokens. Blocked on ik #1888 and
-  # #1976; until one lands, raising cache-ram only stops needless eviction.
-  #
   # --ctx-checkpoints is NOT omitted-as-disabled: 32 is the engine default, so
-  # leaving the flag out changes nothing. Use --ctx-checkpoints 0 to disable.
+  # leaving the flag out changes nothing. Use --ctx-checkpoints 0 to disable. It
+  # is the main lever on host-RAM cost here (~149.6 MiB each), so lower it before
+  # lowering --cache-ram if RAM gets tight. Untested at any other value.
   "qwen38_base": |
     ik-llama-server
     --chat-template-kwargs '{"preserve_thinking":true,"reasoning_effort":"medium"}'
