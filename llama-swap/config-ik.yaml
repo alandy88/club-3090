@@ -162,8 +162,28 @@ macros:
   # read those lines as proof that ik #1888 / #1976 blocked caching entirely on
   # this arch. That was wrong; the cause was eviction.
   #
-  # --cache-ram-similarity / --cache-ram-n-min are left off; qwen_base's values
-  # (0.50 / 0) are already the engine defaults.
+  # --cache-ram-n-min is left off; qwen_base's 0 is already the engine default.
+  #
+  # --cache-ram-similarity 0.10 is BELOW the 0.50 engine default, on purpose.
+  # It is the gate on which cached entry may be restored, in server_prompt_cache
+  # ::load: an entry is skipped unless f_keep = LCP / entry_tokens >= this value.
+  # OpenViking's memory agents are the traffic that needs it. Each request is a
+  # per-phase system prompt (patch merge / extraction / ...) followed by
+  # prefetched memory-file reads that a per-request semantic search orders, so
+  # only the system prompt can ever repeat — f_keep lands near 0.1 and the 0.50
+  # default skips every candidate. Measured over 6 h on the box: 59 of 76 cache
+  # lookups scored ~0, and the four phases ping-ponged through the single slot,
+  # each wiping the other's checkpoints ("erased invalidated context
+  # checkpoint" x19, then a full re-prefill of 14-30K tokens).
+  #
+  # THE CEILING IS LOW. Only the system prompt is shared, so this recovers one
+  # 1024-token checkpoint out of a 14-30K prompt — call it 3-7% of prefill, not
+  # a fix. The real cost is that every request ships mostly-unique context.
+  # 0.10 (not lower) keeps it at the same value as -sps, the slot-selection gate.
+  #
+  # Raising -np is NOT the alternative: -c is TOTAL and divides, so -np 4 gives
+  # 32768/slot against a measured 30905-token peak, and checkpoints are per slot
+  # (4.8 GiB each) against ~11 GiB free host RAM.
   #
   # --ctx-checkpoints is NOT omitted-as-disabled: 32 is the engine default, so
   # leaving the flag out changes nothing. Use --ctx-checkpoints 0 to disable. It
@@ -188,6 +208,7 @@ macros:
     -khad
     -vhad
     --cache-ram 32768
+    --cache-ram-similarity 0.10
     --merge-qkv
     --spec-type mtp:n_max=5,p_min=0.5
     -np 1
