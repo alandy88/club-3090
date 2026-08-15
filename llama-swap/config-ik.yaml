@@ -211,15 +211,25 @@ macros:
     --cache-ram-similarity 0.10
     --merge-qkv
     --spec-type mtp:n_max=5,p_min=0.5
-    # 2 slots, NOT 1. The 47d58fb pin rejected -np, but it priced -np 4: 32768
-    # tokens/slot against a 30905 peak, and ~19 GiB of checkpoints against
-    # ~11 GiB free. At -np 2 both numbers invert — 65536/slot (2.1x the peak)
-    # and ~9.6 GiB against 30 GiB available (measured 2026-08-15; the ~11 GiB
-    # figure was stale). ik #1932 is irrelevant below -np 3 and fixed anyway.
-    # What that pin got right and this does NOT fix: selection is LCP-then-LRU
-    # with no shape affinity, so compressor_v3 and memory_extract are not
-    # PINNED to a slot each. This makes the win likely, not guaranteed.
-    -np 2
+    # -np 1 IS LOAD-BEARING, and the reason is the line above, not VRAM. MTP and
+    # parallel slots are MUTUALLY EXCLUSIVE in this build (43afea46). At -np 2 the
+    # engine strips the MTP stage and then dies on startup:
+    #   common_speculative_prepare_startup: MTP is not supported with parallel
+    #   slots yet, removing the MTP stage to avoid cross-slot corruption.
+    #   n_parallel=2, stage_chain=mtp
+    # Tried live 2026-08-15 (club-3090#5, lif-studio#478): 14 crash-restarts,
+    # Qwen3.8-27B down ~3 min, reverted. The deploy gate is ping-only and passed
+    # green throughout, because it never loads a GGUF.
+    #
+    # This is a FIFTH blocker, separate from the four the 47d58fb pin weighed.
+    # Those four were all cleared or survivable at -np 2 — 65536 tokens/slot vs a
+    # 30905 peak, ~9.6 GiB of checkpoints vs 30 GiB available, ik #1932 needing
+    # -np >= 3. None of them is what broke it.
+    #
+    # So raising -np means DROPPING MTP, which is the measured decode accelerator
+    # (69.7 tok/s with it). That is a trade to be benched, not a free fix. Do not
+    # change -np and --spec-type independently.
+    -np 1
     --jinja
     --parallel-tool-calls
     --reasoning on
