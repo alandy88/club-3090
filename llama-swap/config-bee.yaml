@@ -3,8 +3,11 @@
 #
 # Engine: beellama.cpp v0.2.0 (Anbeeld fork — DFlash + TurboQuant)
 # Cache:  q5_0 K / q4_1 V (upstream "precision combo" default)
-# Qwen:   DFlash speculative + spiritbuun Q4_K_M drafter
 # Gemma:  DFlash speculative + Anbeeld IQ4_XS drafter
+#
+# SERVES NO QWEN. The two Qwen3.6-27B heretic-v2 entries were retired and their
+# weights deleted. Selecting this config removes Qwen from the stack; it is not
+# a Qwen backend switch.
 # =============================================================================
 
 healthCheckTimeout: 120
@@ -12,67 +15,10 @@ logLevel: info
 globalTTL: 300
 
 models:
-  "Qwen3.6-27B-heretic-v2-Q5_K_S":
-    cmd: |
-      bee-llama-server
-      --port ${PORT}
-      -m /models/Qwen3.6-27B-uncensored-heretic-v2-Q5_K_S.gguf
-      --spec-type dflash
-      --spec-draft-model /models/dflash-draft-3.6-q4_k_m.gguf
-      --spec-draft-ngl all
-      --spec-draft-n-max 12
-      --spec-dflash-cross-ctx 1024
-      -c 131072
-      -b 2048
-      -ub 512
-      -ngl all
-      -fa on
-      --cache-type-k q5_0
-      --cache-type-v q4_1
-      -np 1
-      --kv-unified
-      --cache-ram 0
-      --no-mmap
-      --mlock
-      --no-host
-      --metrics
-      --jinja
-      --reasoning on
-      --reasoning-budget 256
-      --temp 0.6
-      --top-p 1.0
-      --top-k 20
-      --min-p 0.0
-
-  "Qwen3.6-27B-heretic-v2-Q4_K_M":
-    cmd: |
-      bee-llama-server
-      --port ${PORT}
-      -m /models/Qwen3.6-27B-uncensored-heretic-v2-Q4_K_M.gguf
-      --spec-type dflash
-      --spec-draft-model /models/dflash-draft-3.6-q4_k_m.gguf
-      --spec-draft-ngl all
-      --spec-dflash-cross-ctx 1024
-      -c 131072
-      -b 2048
-      -ub 512
-      -ngl all
-      -fa on
-      --cache-type-k q5_0
-      --cache-type-v q4_1
-      -np 1
-      --kv-unified
-      --cache-ram 0
-      --no-mmap
-      --mlock
-      --no-host
-      --metrics
-      --jinja
-      --reasoning on
-            --temp 0.6
-      --top-p 1.0
-      --top-k 20
-      --min-p 0.0
+  # RETIRED — the two Qwen3.6-27B heretic-v2 entries (Q5_K_S and Q4_K_M),
+  # superseded by Qwen3.8-27B on the ik config. Their weights are deleted from
+  # the box, so this is NOT a config-only revert.
+  # Their drafter, dflash-draft-3.6-q4_k_m.gguf, is now unused but kept on disk.
 
   "gemma-4-31B-it-uncensored-heretic-Q4_K_M":
     cmd: |
