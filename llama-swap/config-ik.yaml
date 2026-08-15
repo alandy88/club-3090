@@ -104,7 +104,9 @@ macros:
   #   --ctx-checkpoints 32 ..... checkpoint reuse for hybrid/recurrent models is
   #                              still unmerged upstream (ik PRs #1888, #1976).
   #                              This model IS hybrid recurrent, so the flag is
-  #                              at best inert. Omitted until those land.
+  #                              at best inert. NOTE it is inert, not off — 32 is
+  #                              the engine default, so omitting it disables
+  #                              nothing. See the cache note below.
   # --spec-autotune is also absent: every number below was measured at a FIXED
   # n_max=5, and autotune was never benched on this arch.
   #
@@ -129,6 +131,26 @@ macros:
   # To override per request, send BOTH keys — a request-level object may replace
   # rather than merge with this server default, which is untested:
   #   "chat_template_kwargs":{"preserve_thinking":true,"reasoning_effort":"xhigh"}
+  #
+  # --cache-ram 32768 matches qwen_base and replaces the 8192 default, which was
+  # thrashing: measured entries of 3307 and 7831 MiB, i.e. two prompts filled the
+  # cache and the log showed "cache size limit reached, removing oldest entry".
+  # --cache-ram-similarity / --cache-ram-n-min are left off; qwen_base's values
+  # (0.50 / 0) are already the engine defaults.
+  #
+  # THIS DOES NOT MAKE THE PROMPT CACHE WORK. Qwen3.8 is recurrent, and ik cannot
+  # save or restore recurrent layer state, so every request re-prefills from
+  # token 0. At load: "ctx_shift is not supported by recurrent model, it will be
+  # disabled"; per request: "slot apply_checkp: forcing full prompt
+  # re-processing due to lack of cache data (likely due to SWA...)". That
+  # message blames SWA but this model reports n_swa = 0 — the recurrent state is
+  # the real cause. Measured 2026-08-15: the SAME prompt sent twice back to back
+  # returned cached_tokens 0 both times (1011 prompt tokens each). Over 24 h of
+  # real traffic no cache load reused more than 7 tokens. Blocked on ik #1888 and
+  # #1976; until one lands, raising cache-ram only stops needless eviction.
+  #
+  # --ctx-checkpoints is NOT omitted-as-disabled: 32 is the engine default, so
+  # leaving the flag out changes nothing. Use --ctx-checkpoints 0 to disable.
   "qwen38_base": |
     ik-llama-server
     --chat-template-kwargs '{"preserve_thinking":true,"reasoning_effort":"medium"}'
@@ -147,6 +169,7 @@ macros:
     --cache-type-v q6_0
     -khad
     -vhad
+    --cache-ram 32768
     --merge-qkv
     --spec-type mtp:n_max=5,p_min=0.5
     -np 1
