@@ -110,9 +110,28 @@ macros:
   #
   # Sampling is Qwen3.8's documented THINKING-mode set (temp 1.0 / top-p 0.95 /
   # top-k 20 / min-p 0), not qwen_base's 0.6 — 3.8 raised the thinking temp.
+  #
+  # reasoning_effort=medium is a DELIBERATE default. The model's own default is
+  # xhigh, which this pins down rather than assumes — measured 2026-08-15 on the
+  # same prompt at temp 0, server-level kwargs, Q4_K_M:
+  #   preserve_thinking only (i.e. model default) . 2726 reasoning chars / 1664 tok
+  #   + reasoning_effort=xhigh ..................... 2726 / 1664  <- IDENTICAL
+  #   + reasoning_effort=medium .................... 1200 / 1012
+  # So medium costs 56% less reasoning and 39% fewer completion tokens. Per-request
+  # overrides reproduce these numbers exactly, so both render paths agree.
+  #
+  # It MUST go in --chat-template-kwargs. The OpenAI-style top-level
+  # `reasoning_effort` request field is SILENTLY IGNORED by this template —
+  # low/medium/xhigh all returned byte-identical output. Do not "simplify" this
+  # to the top-level field. Valid values are low|medium|xhigh; "none" is
+  # documented upstream but returns HTTP 500 here.
+  #
+  # To override per request, send BOTH keys — a request-level object may replace
+  # rather than merge with this server default, which is untested:
+  #   "chat_template_kwargs":{"preserve_thinking":true,"reasoning_effort":"xhigh"}
   "qwen38_base": |
     ik-llama-server
-    --chat-template-kwargs '{"preserve_thinking":true}'
+    --chat-template-kwargs '{"preserve_thinking":true,"reasoning_effort":"medium"}'
     --port ${PORT}
     --threads 8
     --threads-batch 8
