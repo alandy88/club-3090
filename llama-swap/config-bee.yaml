@@ -3,8 +3,11 @@
 #
 # Engine: beellama.cpp v0.2.0 (Anbeeld fork — DFlash + TurboQuant)
 # Cache:  q5_0 K / q4_1 V (upstream "precision combo" default)
-# Qwen:   DFlash speculative + spiritbuun Q4_K_M drafter
 # Gemma:  DFlash speculative + Anbeeld IQ4_XS drafter
+#
+# SERVES NO QWEN. The two Qwen3.6-27B heretic-v2 entries were retired and their
+# weights deleted. Selecting this config removes Qwen from the stack; it is not
+# a Qwen backend switch.
 # =============================================================================
 
 healthCheckTimeout: 120

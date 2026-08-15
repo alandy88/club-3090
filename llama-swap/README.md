@@ -17,8 +17,8 @@ cannot `make build` until then.
 |------|---------|
 | `compose.yml` | Single `llama-swap` service, GPU-pinned, port 8020 |
 | `Dockerfile` | Multi-stage build; overlays the 2 fork binaries **and a pinned llama-swap binary** onto upstream `llama-swap:unified-cuda` |
-| `config-ik.yaml` | Active config — `ik-llama-server` for Qwen3.6, `bee-llama-server` for Gemma-4 |
-| `config-bee.yaml` | Alternate — `beellama` backend for Qwen3.6 |
+| `config-ik.yaml` | Active config — `ik-llama-server` for Qwen3.6-35B and Qwen3.8, `bee-llama-server` for Gemma-4, stock for ToriiGate, jina and Glimmer |
+| `config-bee.yaml` | Alternate — `beellama` backend for the 31B Gemmas only. **It serves no Qwen.** Switching to it does not change which Qwen backend runs; it removes Qwen from the stack. |
 | `*-server.sh` | One-line wrappers that set `LD_LIBRARY_PATH` per fork |
 | `vendor-llama-swap/llama-swap` | **Local-only** (not committed) — official llama-swap release binary, overlaid to run a newer version than the base ships. See [Vendoring the llama-swap binary](#vendoring-the-llama-swap-binary). |
 | `.env.example` | Template — copy to `.env` and fill in |
