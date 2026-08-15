@@ -164,26 +164,28 @@ macros:
   #
   # --cache-ram-n-min is left off; qwen_base's 0 is already the engine default.
   #
-  # --cache-ram-similarity 0.10 is BELOW the 0.50 engine default, on purpose.
+  # --cache-ram-similarity 0.50 is the engine default, restored deliberately.
   # It is the gate on which cached entry may be restored, in server_prompt_cache
   # ::load: an entry is skipped unless f_keep = LCP / entry_tokens >= this value.
-  # OpenViking's memory agents are the traffic that needs it. Each request is a
-  # per-phase system prompt (patch merge / extraction / ...) followed by
-  # prefetched memory-file reads that a per-request semantic search orders, so
-  # only the system prompt can ever repeat — f_keep lands near 0.1 and the 0.50
-  # default skips every candidate. Measured over 6 h on the box: 59 of 76 cache
-  # lookups scored ~0, and the four phases ping-ponged through the single slot,
-  # each wiping the other's checkpoints ("erased invalidated context
-  # checkpoint" x19, then a full re-prefill of 14-30K tokens).
   #
-  # THE CEILING IS LOW. Only the system prompt is shared, so this recovers one
-  # 1024-token checkpoint out of a 14-30K prompt — call it 3-7% of prefill, not
-  # a fix. The real cost is that every request ships mostly-unique context.
-  # 0.10 (not lower) keeps it at the same value as -sps, the slot-selection gate.
+  # IT WAS 0.10 FOR ONE DAY AND IS BACK AT 0.50. The 0.10 experiment targeted
+  # OpenViking's memory agents, whose requests are a per-phase system prompt
+  # (patch merge / extraction / ...) followed by prefetched memory-file reads
+  # that a per-request semantic search orders. Only the system prompt can ever
+  # repeat, so f_keep lands near 0.1 and the 0.50 default skips every candidate —
+  # measured over 6 h on the box, 59 of 76 cache lookups scored ~0.
   #
-  # Raising -np is NOT the alternative: -c is TOTAL and divides, so -np 4 gives
-  # 32768/slot against a measured 30905-token peak, and checkpoints are per slot
-  # (4.8 GiB each) against ~11 GiB free host RAM.
+  # The ceiling on that win was always low: one 1024-token checkpoint out of a
+  # 14-30K prompt, call it 3-7% of prefill. Against it, a lower gate can select a
+  # WEAK entry over a strong one, which risks the traffic that already restores
+  # at 0.5-0.76 (ReAct-loop continuations inside a single extract run, never
+  # broken). 0.50 takes the safe side of that trade.
+  #
+  # Raising -np is NOT the alternative, and not only for the reasons below: MTP
+  # and parallel slots are mutually exclusive in this build. See the -np note in
+  # the macro. Beyond that, -c is TOTAL and divides, so -np 4 gives 32768/slot
+  # against a measured 30905-token peak, and checkpoints are per slot (4.8 GiB
+  # each) against ~11 GiB free host RAM.
   #
   # --ctx-checkpoints is NOT omitted-as-disabled: 32 is the engine default, so
   # leaving the flag out changes nothing. Use --ctx-checkpoints 0 to disable. It
@@ -200,7 +202,7 @@ macros:
     --no-mmproj-offload
     -ngl 99
     -fa on
-    -b 1024
+    -b 2048
     -ub 512
     -amb 512
     --cache-type-k q8_0
@@ -208,7 +210,7 @@ macros:
     -khad
     -vhad
     --cache-ram 32768
-    --cache-ram-similarity 0.10
+    --cache-ram-similarity 0.50
     --merge-qkv
     --spec-type mtp:n_max=5,p_min=0.5
     # -np 1 IS LOAD-BEARING, and the reason is the line above, not VRAM. MTP and
@@ -379,13 +381,32 @@ models:
   # window needs 8309 MiB of KV and OOMs (verified: "Memory required 24318 MiB /
   # available 22131 MiB"). At 131K only ~1423 MiB is spare as deployed, so this
   # entry does NOT co-reside with a second chat model.
+  #
+  # WEIGHTS ARE bartowski's IQ4_XS, NOT unsloth's. Same quant type, different
+  # quantizer. Verified from the GGUF header before the swap: arch qwen35,
+  # nextn_predict_layers=1 with 4 blk.64.nextn.* tensors (so --spec-type mtp
+  # still applies), imatrix calibration-v6 / 582 chunks. 15.568 GB against
+  # unsloth's 15.706 GB, i.e. 138 MB SMALLER, so headroom improves slightly.
+  # sha256 c2ae2b018f967370087c196c86d6811b2340ec19138a3752252ade5fbd1f4786,
+  # checked on the box against the HF manifest.
+  #
+  # QUALITY IS UNMEASURED, ON BOTH SIDES. bartowski publishes no perplexity for
+  # this repo and neither does unsloth, so this trades one unmeasured IQ4_XS for
+  # another. The case for it is the imatrix calibration, not a measured number.
+  # If a measured IQ4 is ever wanted, ubergarm/Qwen3.8-27B-GGUF ships
+  # MTP-IQ4_KS at PPL 6.9938 vs 6.9540 for BF16 (+0.057%) with published logs —
+  # but it is 16.92 GB, i.e. 1.21 GB LARGER, which does not fit here at 131K
+  # without also dropping --cache-type-k to q6_0.
+  #
+  # unsloth's Qwen3.8-27B-IQ4_XS.gguf STAYS ON DISK, so the revert is
+  # config-only: point -m back at it.
   "Qwen3.8-27B":
     # 30 min, not globalTTL 300 — a re-prefill of this window is expensive, and
     # the in-process prompt cache dies with the server.
     ttl: 1800
     cmd: |
       ${qwen38_base}
-      -m /models/Qwen3.8-27B-IQ4_XS.gguf
+      -m /models/Qwen3.8-27B-bartowski-IQ4_XS.gguf
       -c 131072
 
   # One-off prompts. Q4_K_M trades ~13 tok/s for 3323 MiB of AS-DEPLOYED headroom
