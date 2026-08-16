@@ -98,9 +98,9 @@ macros:
   # ---------- Qwen3.8-27B dense hybrid VLM (ik-llama backend) ----------
   # NOT a variant of qwen_base — three of that macro's flags are wrong here:
   #   --merge-up-gate-experts ... MoE-only; Qwen3.8-27B is DENSE.
-  #   --chat-template-file ..... that file is the Qwen3.6 template. Qwen3.8 ships
-  #                              its own (Unsloth-patched) template in the GGUF,
-  #                              which --jinja uses. Do not point it elsewhere.
+  #   --chat-template-file ..... that file is the Qwen3.6 template. This macro
+  #                              points at its OWN file (froggeric v22, see the
+  #                              template note below). Never share qwen_base's.
   #   --ctx-checkpoints 32 ..... left unset, but NOT disabled: 32 is the engine
   #                              default, so omitting it changes nothing. It is
   #                              also NOT inert — checkpoint restore is measured
@@ -123,11 +123,29 @@ macros:
   # So medium costs 56% less reasoning and 39% fewer completion tokens. Per-request
   # overrides reproduce these numbers exactly, so both render paths agree.
   #
+  # THOSE NUMBERS WERE MEASURED ON THE IN-GGUF TEMPLATE AND DO NOT CARRY OVER.
+  # This macro now loads froggeric v22 (see the template note below), which
+  # implements effort as a steering sentence in the system prompt, not as a
+  # template branch. Read from the file, lines 43-60:
+  #   xhigh .... injects "Reasoning effort is set to xhigh. Please think
+  #              carefully through the task, validate key assumptions, ..."
+  #   low ...... injects "Reasoning effort is set to low. Keep your thinking
+  #              brief and focused, ..."
+  #   high ..... ALIAS for xhigh. Not a distinct level.
+  #   medium ... INJECTS NOTHING. Byte-identical to omitting the key.
+  #   anything else, including unset ... falls back to xhigh.
+  #
+  # So under v22 the flag below is a NO-OP and the 56% saving is GONE. `low` is
+  # the only reduction lever this template offers. medium is kept here only to
+  # hold the previous intent while the swap is re-measured — do not read it as a
+  # verified setting. RE-MEASURE, then pin low or xhigh and delete this note.
+  #
   # It MUST go in --chat-template-kwargs. The OpenAI-style top-level
   # `reasoning_effort` request field is SILENTLY IGNORED by this template —
   # low/medium/xhigh all returned byte-identical output. Do not "simplify" this
-  # to the top-level field. Valid values are low|medium|xhigh; "none" is
-  # documented upstream but returns HTTP 500 here.
+  # to the top-level field. Under v22 the accepted values are low|medium|high|
+  # xhigh, and no value can raise an exception — an unknown one silently becomes
+  # xhigh. The old in-GGUF template's HTTP 500 on "none" no longer applies.
   #
   # To override per request, send BOTH keys — a request-level object may replace
   # rather than merge with this server default, which is untested:
@@ -191,6 +209,26 @@ macros:
   # leaving the flag out changes nothing. Use --ctx-checkpoints 0 to disable. It
   # is the main lever on host-RAM cost here (~149.6 MiB each), so lower it before
   # lowering --cache-ram if RAM gets tight. Untested at any other value.
+  #
+  # --chat-template-file REPLACES the Unsloth template shipped in the GGUF, which
+  # --jinja would otherwise use. The file is froggeric's Qwen-Fixed-Chat-Templates
+  # at v22 (the 2026-08-13 release that added Qwen3.8), self-identifying on line 1
+  # as template_version = "qwen3.8-froggeric-v22":
+  #   /home/peteryu/llms/qwen38-froggeric-v22.jinja -> /models/... (ro bind)
+  #   sha256 398edf5b5bb802fb6b9c9a8dba670d09f2aaeef6fdcaa0b2ca307265f59f78dc
+  # It is NOT versioned in this repo — /models is the box's ~/llms, same as every
+  # GGUF. Re-download from HF main only after checking template_version still
+  # reads v22; upstream ships breaking template rewrites under one filename.
+  #
+  # What it claims to fix, none of it verified here yet: blank <think></think>
+  # blocks that abort tool calls, a fatal exception on enable_thinking=false,
+  # tool arguments arriving as JSON strings rather than dicts, and out-of-order
+  # history that invalidates the prefix cache. That last one would interact with
+  # the --cache-ram / --cache-ram-similarity findings below, so treat those
+  # numbers as needing a re-measure too, not just the reasoning_effort ones.
+  #
+  # Its documented llama.cpp requirements are --jinja and --reasoning-format
+  # deepseek. Both were ALREADY in this macro before the swap; neither moved.
   "qwen38_base": |
     ik-llama-server
     --chat-template-kwargs '{"preserve_thinking":true,"reasoning_effort":"medium"}'
@@ -236,6 +274,7 @@ macros:
     --parallel-tool-calls
     --reasoning on
     --reasoning-format deepseek
+    --chat-template-file /models/qwen38-froggeric-v22.jinja
     --image-min-tokens 1024
     --image-max-tokens 4096
     --temp 1.0
