@@ -1,0 +1,38 @@
+# =============================================================================
+# Deploy-only compose override for the lif-studio OpenTofu stack
+# (lif-studio infrastructure/packages/3090/llama-swap, ADR-0035 / spec §7.7).
+#
+# The tofu deploy parses compose WHERE TOFU RUNS (a CI runner or the
+# workstation), while the container runs on peter-3090-u. Two things in the
+# base compose.yml assume an on-box `docker compose up` and break under that
+# split; this override fixes both WITHOUT touching compose.yml, which keeps
+# flowing upstream unchanged:
+#
+# 1. The config bind mount. `./${LLAMA_CONFIG}` resolves against the compose
+#    file's directory ON THE CLIENT, so a remote apply would send a
+#    client-local path as the mount source and the box daemon would mount a
+#    fresh empty directory over the config. CLUB_STACK_DIR must be the
+#    BOX-absolute path of this directory (the lif-studio stack sets
+#    /home/peteryu/club-3090-deploy/llama-swap). `:?` fails the apply loudly
+#    when it is unset — only the tofu deploy consumes this file, so plain
+#    on-box `docker compose up` from compose.yml alone is unaffected.
+#
+# 2. The default network. openviking and open-webui join llama-swap_default
+#    as an external network; a compose `down` (tofu replace) would try to
+#    remove it and fail on their active endpoints, wedging the apply with the
+#    stack down. Declaring it external here means down never touches it. The
+#    lif-studio pre-apply hook creates it if missing (fresh-box case).
+#
+# Usage (what the tofu stack does):
+#   docker compose -f compose.yml -f compose.lif.yml ...
+# The volumes lists merge by container-path target, so this replaces only the
+# config mount; the /models mount is untouched.
+services:
+  llama-swap:
+    volumes:
+      - ${CLUB_STACK_DIR:?box-absolute path of this llama-swap dir — see lif-studio infrastructure/packages/3090/llama-swap/README.md}/${LLAMA_CONFIG:-config-ik.yaml}:/etc/llama-swap/config/config.yaml:ro
+
+networks:
+  default:
+    name: llama-swap_default
+    external: true
